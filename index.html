@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Órbita — metas em sequência</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- fundo de estrelas -->
+<canvas id="starfield"></canvas>
+
+<!-- TELA DE LOGIN -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="auth-mark">Ω</span>
+      <h1>Órbita</h1>
+    </div>
+    <p class="auth-sub">Suas metas, em sequência. Entre para continuar sua órbita.</p>
+
+    <form id="authForm" class="auth-form">
+      <label class="field">
+        <span>E-mail</span>
+        <input type="email" id="authEmail" required autocomplete="username" placeholder="voce@email.com">
+      </label>
+      <label class="field">
+        <span>Senha</span>
+        <input type="password" id="authPassword" required autocomplete="current-password" placeholder="••••••••" minlength="6">
+      </label>
+      <button type="submit" class="btn btn-primary btn-block" id="authSubmitBtn">Entrar</button>
+    </form>
+
+    <button id="authToggleMode" class="link-btn">Ainda não tenho conta — criar agora</button>
+    <p id="authError" class="auth-error" hidden></p>
+    <p class="auth-hint">Precisa configurar o Firebase primeiro. Veja <code>README.md</code>.</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="app hidden">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">Ω</span>
+      <span class="brand-name">Órbita</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab-btn active" data-view="metas">Metas</button>
+      <button class="tab-btn" data-view="calendario">Calendário</button>
+    </nav>
+    <div class="topbar-actions">
+      <span class="user-email" id="userEmailLabel"></span>
+      <button class="btn btn-ghost" id="logoutBtn">Sair</button>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- VIEW: METAS -->
+    <section id="view-metas" class="view active">
+
+      <div class="dashboard" id="dashboard">
+        <!-- resumo de sequências gerado via JS -->
+      </div>
+
+      <div class="metas-header">
+        <h2>Minhas metas</h2>
+        <button class="btn btn-primary" id="openNewGoalBtn">+ Nova meta</button>
+      </div>
+
+      <div class="goal-columns" id="goalColumns">
+        <div class="goal-column" data-type="daily">
+          <div class="goal-column-head">
+            <h3>Diárias</h3>
+            <span class="goal-count" id="count-daily">0</span>
+          </div>
+          <div class="goal-list" id="list-daily"></div>
+        </div>
+        <div class="goal-column" data-type="weekly">
+          <div class="goal-column-head">
+            <h3>Semanais</h3>
+            <span class="goal-count" id="count-weekly">0</span>
+          </div>
+          <div class="goal-list" id="list-weekly"></div>
+        </div>
+        <div class="goal-column" data-type="monthly">
+          <div class="goal-column-head">
+            <h3>Mensais</h3>
+            <span class="goal-count" id="count-monthly">0</span>
+          </div>
+          <div class="goal-list" id="list-monthly"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- VIEW: CALENDÁRIO -->
+    <section id="view-calendario" class="view">
+      <div class="calendar-header">
+        <button class="btn btn-ghost btn-icon" id="prevMonthBtn">&#8592;</button>
+        <h2 id="calendarMonthLabel">Mês</h2>
+        <button class="btn btn-ghost btn-icon" id="nextMonthBtn">&#8594;</button>
+        <button class="btn btn-ghost" id="todayBtn">Hoje</button>
+      </div>
+      <div class="calendar-weekdays">
+        <span>dom</span><span>seg</span><span>ter</span><span>qua</span><span>qui</span><span>sex</span><span>sáb</span>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="calendar-legend" id="calendarLegend"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- MODAL: NOVA META -->
+<div class="modal-backdrop" id="newGoalModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Nova meta</h3>
+      <button class="modal-close" id="closeNewGoalModal">&times;</button>
+    </div>
+    <form id="newGoalForm">
+      <label class="field">
+        <span>Nome da meta</span>
+        <input type="text" id="newGoalName" required placeholder="Ex.: Ler 20 páginas">
+      </label>
+      <label class="field">
+        <span>Frequência</span>
+        <select id="newGoalType">
+          <option value="daily">Diária</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensal</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Cor</span>
+        <div class="color-picker" id="colorPicker">
+          <button type="button" class="color-swatch" data-color="#F2B84B" style="background:#F2B84B"></button>
+          <button type="button" class="color-swatch" data-color="#4FA3E3" style="background:#4FA3E3"></button>
+          <button type="button" class="color-swatch" data-color="#C15FF2" style="background:#C15FF2"></button>
+          <button type="button" class="color-swatch" data-color="#4CD9A0" style="background:#4CD9A0"></button>
+          <button type="button" class="color-swatch" data-color="#F26B6B" style="background:#F26B6B"></button>
+          <button type="button" class="color-swatch" data-color="#8B90AC" style="background:#8B90AC"></button>
+        </div>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">Criar meta</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: DIA DO CALENDÁRIO -->
+<div class="modal-backdrop" id="dayModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="dayModalTitle">Dia</h3>
+      <button class="modal-close" id="closeDayModal">&times;</button>
+    </div>
+    <div id="dayModalList" class="day-modal-list"></div>
+  </div>
+</div>
+
+<!-- MODAL: CONFIRMAR EXCLUSÃO -->
+<div class="modal-backdrop" id="confirmModal" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h3>Excluir meta?</h3>
+      <button class="modal-close" id="closeConfirmModal">&times;</button>
+    </div>
+    <p class="confirm-text">Essa ação apaga a meta e todo o histórico de sequência dela. Não pode ser desfeita.</p>
+    <div class="confirm-actions">
+      <button class="btn btn-ghost" id="cancelDeleteBtn">Cancelar</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
