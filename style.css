@@ -142,11 +142,11 @@ button{font-family:inherit;}
   color:#0A0D18; font-weight:700; font-size:15px; font-family:var(--font-display);
 }
 .brand-name{font-family:var(--font-display); font-weight:600; font-size:17px;}
-.tabs{display:flex; gap:4px; background:var(--bg-panel-2); padding:4px; border-radius:999px; flex:1; max-width:300px;}
+.tabs{display:flex; gap:4px; background:var(--bg-panel-2); padding:4px; border-radius:999px; flex:1; max-width:440px;}
 .tab-btn{
   flex:1; background:transparent; border:none; color:var(--ink-500);
-  padding:8px 16px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;
-  transition:background .15s ease, color .15s ease;
+  padding:8px 14px; border-radius:999px; font-size:13px; font-weight:600; cursor:pointer;
+  white-space:nowrap; transition:background .15s ease, color .15s ease;
 }
 .tab-btn.active{background:var(--bg-panel-3); color:var(--ink-100);}
 .topbar-actions{display:flex; align-items:center; gap:14px; margin-left:auto;}
@@ -575,7 +575,7 @@ button{font-family:inherit;}
 @media (max-width:860px){
   .goal-columns{grid-template-columns:1fr;}
   .topbar{flex-wrap:wrap; gap:12px; padding:14px 16px;}
-  .tabs{order:3; max-width:100%;}
+  .tabs{order:3; max-width:100%; overflow-x:auto;}
   .content{padding:22px 16px 50px;}
   .cal-day{padding:5px;}
 }
