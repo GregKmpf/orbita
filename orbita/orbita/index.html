@@ -99,15 +99,6 @@
         </div>
       </div>
 
-      <div class="posts-section">
-        <div class="posts-header">
-          <h2>Publicações</h2>
-          <button class="btn btn-primary" id="openNewPostBtn">+ Nova publicação</button>
-        </div>
-        <div class="posts-filter" id="postsFilter"></div>
-        <div class="posts-list" id="postsList"></div>
-      </div>
-
     </section>
 
     <!-- VIEW: CALENDÁRIO -->
@@ -230,38 +221,6 @@
   </div>
 </div>
 
-<!-- MODAL: NOVA PUBLICAÇÃO -->
-<div class="modal-backdrop" id="newPostModal" hidden>
-  <div class="modal modal-lg">
-    <div class="modal-head">
-      <h3>Nova publicação</h3>
-      <button class="modal-close" id="closeNewPostModal">&times;</button>
-    </div>
-    <form id="newPostForm">
-      <label class="field">
-        <span>Título</span>
-        <input type="text" id="newPostTitle" required placeholder="Ex.: O que aprendi hoje sobre React">
-      </label>
-      <label class="field">
-        <span>Conteúdo</span>
-        <textarea id="newPostContent" required placeholder="Escreva aqui..."></textarea>
-      </label>
-      <label class="field">
-        <span>Tags</span>
-        <div class="tag-picker" id="tagPicker">
-          <button type="button" class="tag-chip" data-tag="código">código</button>
-          <button type="button" class="tag-chip" data-tag="trabalho">trabalho</button>
-          <button type="button" class="tag-chip" data-tag="estudos">estudos</button>
-          <button type="button" class="tag-chip" data-tag="pessoal">pessoal</button>
-        </div>
-        <input type="text" id="newPostCustomTag" placeholder="Outra tag e Enter para adicionar">
-        <div class="tag-chip-list" id="customTagChips"></div>
-      </label>
-      <button type="submit" class="btn btn-primary btn-block">Publicar</button>
-    </form>
-  </div>
-</div>
-
 <!-- MODAL: DIA DO CALENDÁRIO -->
 <div class="modal-backdrop" id="dayModal" hidden>
   <div class="modal">
@@ -277,10 +236,10 @@
 <div class="modal-backdrop" id="confirmModal" hidden>
   <div class="modal modal-sm">
     <div class="modal-head">
-      <h3 id="confirmModalTitle">Excluir meta?</h3>
+      <h3>Excluir meta?</h3>
       <button class="modal-close" id="closeConfirmModal">&times;</button>
     </div>
-    <p class="confirm-text" id="confirmModalText">Essa ação apaga a meta e todo o histórico de sequência dela. Não pode ser desfeita.</p>
+    <p class="confirm-text">Essa ação apaga a meta e todo o histórico de sequência dela. Não pode ser desfeita.</p>
     <div class="confirm-actions">
       <button class="btn btn-ghost" id="cancelDeleteBtn">Cancelar</button>
       <button class="btn btn-danger" id="confirmDeleteBtn">Excluir</button>
