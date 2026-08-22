@@ -1,5 +1,7 @@
 # Órbita — metas em sequência
 
+https://gregkmpf.github.io/orbita/
+
 Site de produtividade com metas diárias/semanais/mensais, calendário de atividades,
 sequências (streaks) e sistema de níveis. Feito em HTML/CSS/JS puro, pronto para
 GitHub Pages, com dados salvos no **Firebase** (assim funcionam em qualquer navegador,
