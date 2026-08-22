@@ -67,12 +67,20 @@ service cloud.firestore {
     match /users/{userId}/goals/{goalId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /users/{userId}/posts/{postId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 ```
 
-Isso garante que **cada usuário só consegue ler e escrever os próprios dados**.
-Clique em **Publish**.
+Isso garante que **cada usuário só consegue ler e escrever os próprios dados**
+(tanto as metas quanto as publicações). Clique em **Publish**.
+
+> Se você já tinha publicado as regras antes de adicionar a funcionalidade de
+> publicações, volte em **Firestore Database > Rules** e cole essa versão
+> atualizada (com o bloco `posts`), senão a criação de publicações vai falhar
+> com erro de permissão.
 
 ### 2.5 Pegar as chaves de configuração
 
@@ -139,3 +147,15 @@ firebase-config.js   → suas chaves do Firebase (edite este arquivo)
 Os dados ficam salvos no Firestore em:
 `users/{seu-uid}/goals/{id-da-meta}` — cada meta guarda nome, tipo, cor e a lista de
 datas em que foi concluída.
+`users/{seu-uid}/posts/{id-da-publicação}` — cada publicação guarda título,
+conteúdo, tags e data de criação.
+
+---
+
+## 6. Publicações (mini-blog)
+
+Na aba **Metas**, logo abaixo das colunas de metas, existe a seção **Publicações**.
+Ali você pode escrever textos livres (estudos, anotações, o que quiser), marcar tags
+como `código` ou `trabalho` (ou criar tags novas digitando e pressionando Enter) e
+publicar. Cada publicação ocupa a largura total da área de conteúdo, uma embaixo da
+outra, e dá para filtrar a lista clicando em uma tag no topo da seção.

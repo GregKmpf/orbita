@@ -13,6 +13,13 @@ let calendarCursor = (() => {
 })();
 let selectedColor = "#F2B84B";
 let pendingDeleteId = null;
+let pendingDeleteType = null;   // 'goal' | 'post'
+
+let posts = [];                 // array de {id, title, content, tags:[], createdAt}
+let postsUnsub = null;
+let selectedTags = new Set();
+let activeTagFilter = null;
+const DEFAULT_TAGS = ["código","trabalho","estudos","pessoal"];
 
 const MONTH_NAMES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 
@@ -155,11 +162,15 @@ auth.onAuthStateChanged((user) => {
     appEl.classList.remove("hidden");
     userEmailLabel.textContent = user.email;
     subscribeGoals(user.uid);
+    subscribePosts(user.uid);
   } else {
     appEl.classList.add("hidden");
     authScreen.classList.remove("hidden");
     if (goalsUnsub) { goalsUnsub(); goalsUnsub = null; }
+    if (postsUnsub) { postsUnsub(); postsUnsub = null; }
     goals = [];
+    posts = [];
+    activeTagFilter = null;
   }
 });
 
@@ -191,17 +202,27 @@ function subscribeGoals(uid){
 async function addGoal(name, type, color){
   const user = auth.currentUser;
   if (!user) return;
-  await goalsRef(user.uid).add({
-    name, type, color, completions: [],
-    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-  });
-  showToast("Meta criada.");
+  try{
+    await goalsRef(user.uid).add({
+      name, type, color, completions: [],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast("Meta criada.");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao criar meta: " + err.message);
+  }
 }
 async function deleteGoal(id){
   const user = auth.currentUser;
   if (!user) return;
-  await goalsRef(user.uid).doc(id).delete();
-  showToast("Meta excluída.");
+  try{
+    await goalsRef(user.uid).doc(id).delete();
+    showToast("Meta excluída.");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao excluir meta: " + err.message);
+  }
 }
 async function toggleCompletion(id, dateStr){
   const user = auth.currentUser;
@@ -212,7 +233,63 @@ async function toggleCompletion(id, dateStr){
   const field = has
     ? firebase.firestore.FieldValue.arrayRemove(dateStr)
     : firebase.firestore.FieldValue.arrayUnion(dateStr);
-  await goalsRef(user.uid).doc(id).update({ completions: field });
+  try{
+    await goalsRef(user.uid).doc(id).update({ completions: field });
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao atualizar meta: " + err.message);
+  }
+}
+
+/* ---------------------------------------------------------
+   4b. Firestore — publicações
+--------------------------------------------------------- */
+function postsRef(uid){
+  return db.collection("users").doc(uid).collection("posts");
+}
+function subscribePosts(uid){
+  if (postsUnsub) postsUnsub();
+  postsUnsub = postsRef(uid).orderBy("createdAt", "desc").onSnapshot((snap) => {
+    posts = snap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title,
+        content: data.content,
+        tags: Array.isArray(data.tags) ? data.tags : [],
+        createdAt: data.createdAt || null,
+      };
+    });
+    renderPosts();
+  }, (err) => {
+    console.error(err);
+    showToast("Erro ao carregar publicações: " + err.message);
+  });
+}
+async function addPost(title, content, tags){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await postsRef(user.uid).add({
+      title, content, tags,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast("Publicação criada.");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao publicar: " + err.message);
+  }
+}
+async function deletePost(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await postsRef(user.uid).doc(id).delete();
+    showToast("Publicação excluída.");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao excluir publicação: " + err.message);
+  }
 }
 
 /* ---------------------------------------------------------
@@ -331,6 +408,9 @@ document.getElementById("goalColumns").addEventListener("click", async (e) => {
     await toggleCompletion(completeBtn.dataset.id, todayStr());
   } else if (deleteBtn){
     pendingDeleteId = deleteBtn.dataset.id;
+    pendingDeleteType = "goal";
+    document.getElementById("confirmModalTitle").textContent = "Excluir meta?";
+    document.getElementById("confirmModalText").textContent = "Essa ação apaga a meta e todo o histórico de sequência dela. Não pode ser desfeita.";
     openModal("confirmModal");
   }
 });
@@ -363,13 +443,147 @@ document.getElementById("newGoalForm").addEventListener("submit", async (e) => {
 });
 
 /* ---------------------------------------------------------
-   9. Excluir meta — modal de confirmação
+   8b. Publicações — render, filtro por tag e modal
+--------------------------------------------------------- */
+function formatPostDate(ts){
+  if (!ts || typeof ts.toDate !== "function") return "agora há pouco";
+  const d = ts.toDate();
+  return `${String(d.getDate()).padStart(2,"0")} de ${MONTH_NAMES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+function allPostTags(){
+  const set = new Set();
+  posts.forEach(p => p.tags.forEach(t => set.add(t)));
+  return Array.from(set).sort((a,b) => a.localeCompare(b, "pt-BR"));
+}
+
+function renderPostsFilter(){
+  const filterEl = document.getElementById("postsFilter");
+  const tags = allPostTags();
+  if (tags.length === 0){
+    filterEl.innerHTML = "";
+    return;
+  }
+  filterEl.innerHTML = `
+    <button class="tag-filter-btn ${activeTagFilter === null ? "active" : ""}" data-tag="">Todas</button>
+    ${tags.map(t => `<button class="tag-filter-btn ${activeTagFilter === t ? "active" : ""}" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}
+  `;
+}
+
+function renderPosts(){
+  renderPostsFilter();
+  const list = document.getElementById("postsList");
+
+  if (posts.length === 0){
+    list.innerHTML = `<div class="posts-empty">Nenhuma publicação ainda. Compartilhe o que você andou estudando ou pensando.</div>`;
+    return;
+  }
+
+  const visible = activeTagFilter ? posts.filter(p => p.tags.includes(activeTagFilter)) : posts;
+  if (visible.length === 0){
+    list.innerHTML = `<div class="posts-empty">Nenhuma publicação com essa tag.</div>`;
+    return;
+  }
+
+  list.innerHTML = visible.map(p => `
+    <article class="post-card">
+      <div class="post-card-head">
+        <div>
+          <h3 class="post-title">${esc(p.title)}</h3>
+          <span class="post-date">${formatPostDate(p.createdAt)}</span>
+        </div>
+        <button class="post-delete" data-id="${p.id}" title="Excluir publicação">🗑</button>
+      </div>
+      <p class="post-content">${esc(p.content)}</p>
+      ${p.tags.length ? `<div class="post-tags">${p.tags.map(t => `<span class="post-tag">${esc(t)}</span>`).join("")}</div>` : ""}
+    </article>
+  `).join("");
+}
+
+document.getElementById("postsFilter").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tag-filter-btn");
+  if (!btn) return;
+  activeTagFilter = btn.dataset.tag || null;
+  renderPosts();
+});
+
+document.getElementById("postsList").addEventListener("click", (e) => {
+  const delBtn = e.target.closest(".post-delete");
+  if (!delBtn) return;
+  pendingDeleteId = delBtn.dataset.id;
+  pendingDeleteType = "post";
+  document.getElementById("confirmModalTitle").textContent = "Excluir publicação?";
+  document.getElementById("confirmModalText").textContent = "Essa ação apaga a publicação permanentemente. Não pode ser desfeita.";
+  openModal("confirmModal");
+});
+
+function renderCustomTagChips(){
+  const container = document.getElementById("customTagChips");
+  const custom = Array.from(selectedTags).filter(t => !DEFAULT_TAGS.includes(t));
+  container.innerHTML = custom.map(t => `
+    <span class="tag-chip custom selected" data-tag="${esc(t)}">${esc(t)} <b class="tag-remove">&times;</b></span>
+  `).join("");
+}
+
+document.getElementById("openNewPostBtn").addEventListener("click", () => {
+  document.getElementById("newPostForm").reset();
+  selectedTags = new Set();
+  document.querySelectorAll("#tagPicker .tag-chip").forEach(c => c.classList.remove("selected"));
+  renderCustomTagChips();
+  openModal("newPostModal");
+});
+document.getElementById("closeNewPostModal").addEventListener("click", () => closeModal("newPostModal"));
+
+document.getElementById("tagPicker").addEventListener("click", (e) => {
+  const chip = e.target.closest(".tag-chip");
+  if (!chip) return;
+  const tag = chip.dataset.tag;
+  if (selectedTags.has(tag)){
+    selectedTags.delete(tag);
+    chip.classList.remove("selected");
+  } else {
+    selectedTags.add(tag);
+    chip.classList.add("selected");
+  }
+});
+
+document.getElementById("newPostCustomTag").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const input = e.target;
+  const tag = input.value.trim().toLowerCase();
+  if (!tag) return;
+  selectedTags.add(tag);
+  input.value = "";
+  renderCustomTagChips();
+});
+
+document.getElementById("customTagChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".tag-chip.custom");
+  if (!chip) return;
+  selectedTags.delete(chip.dataset.tag);
+  renderCustomTagChips();
+});
+
+document.getElementById("newPostForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title = document.getElementById("newPostTitle").value.trim();
+  const content = document.getElementById("newPostContent").value.trim();
+  if (!title || !content) return;
+  await addPost(title, content, Array.from(selectedTags));
+  closeModal("newPostModal");
+});
+
+/* ---------------------------------------------------------
+   9. Excluir meta / publicação — modal de confirmação
 --------------------------------------------------------- */
 document.getElementById("closeConfirmModal").addEventListener("click", () => closeModal("confirmModal"));
 document.getElementById("cancelDeleteBtn").addEventListener("click", () => closeModal("confirmModal"));
 document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
-  if (pendingDeleteId) await deleteGoal(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "goal") await deleteGoal(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "post") await deletePost(pendingDeleteId);
   pendingDeleteId = null;
+  pendingDeleteType = null;
   closeModal("confirmModal");
 });
 
