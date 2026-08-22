@@ -54,6 +54,7 @@
       <button class="tab-btn active" data-view="metas">Metas</button>
       <button class="tab-btn" data-view="calendario">Calendário</button>
       <button class="tab-btn" data-view="coruja">Coruja</button>
+      <button class="tab-btn" data-view="pomodoro">Pomodoro</button>
     </nav>
     <div class="topbar-actions">
       <span class="user-email" id="userEmailLabel"></span>
@@ -191,6 +192,76 @@
       </div>
     </section>
 
+    <!-- VIEW: POMODORO -->
+    <section id="view-pomodoro" class="view">
+
+      <div class="pomo-layout">
+
+        <div class="pomo-timer-card">
+          <div class="pomo-subject-row" id="pomoSubjectRow">
+            <!-- chips de matéria gerados via JS -->
+          </div>
+          <button class="link-btn pomo-manage-link" id="openSubjectModalBtn">+ gerenciar matérias</button>
+
+          <div class="pomo-ring-wrap">
+            <svg viewBox="0 0 200 200" class="pomo-ring-svg" aria-hidden="true">
+              <circle class="pomo-ring-track" cx="100" cy="100" r="88"></circle>
+              <circle class="pomo-ring-progress" id="pomoRingProgress" cx="100" cy="100" r="88"></circle>
+            </svg>
+            <div class="pomo-ring-center">
+              <span class="pomo-phase-label" id="pomoPhaseLabel">Foco</span>
+              <span class="pomo-clock" id="pomoClock">25:00</span>
+              <span class="pomo-subject-current" id="pomoCurrentSubject">Escolha uma matéria</span>
+            </div>
+          </div>
+
+          <div class="pomo-duration-row" id="pomoDurationRow">
+            <button type="button" class="pomo-duration-btn" data-min="15">15 min</button>
+            <button type="button" class="pomo-duration-btn active" data-min="25">25 min</button>
+            <button type="button" class="pomo-duration-btn" data-min="45">45 min</button>
+            <button type="button" class="pomo-duration-btn" data-min="60">60 min</button>
+          </div>
+
+          <div class="pomo-controls">
+            <button class="btn btn-ghost btn-icon" id="pomoResetBtn" title="Reiniciar">&#8635;</button>
+            <button class="btn btn-primary pomo-main-btn" id="pomoStartPauseBtn">Iniciar</button>
+            <button class="btn btn-ghost btn-icon" id="pomoSkipBtn" title="Pular fase">&#9193;</button>
+          </div>
+        </div>
+
+        <div class="pomo-side">
+          <div class="pomo-today-stats">
+            <div class="dash-card">
+              <div class="dash-label">Hoje</div>
+              <div class="dash-value" id="pomoTodayTotal">0min</div>
+              <div class="dash-sub" id="pomoTodaySessions">0 sessões concluídas</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-label">Total geral</div>
+              <div class="dash-value" id="pomoAllTimeTotal">0min</div>
+              <div class="dash-sub">desde que você começou</div>
+            </div>
+          </div>
+
+          <div class="pomo-breakdown">
+            <h3>Hoje por matéria</h3>
+            <div class="pomo-breakdown-list" id="pomoBreakdownList">
+              <div class="pomo-breakdown-empty">Nenhuma sessão concluída hoje ainda.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="pomo-history">
+        <h2>Histórico</h2>
+        <div class="pomo-history-list" id="pomoHistoryList">
+          <div class="pomo-history-empty">Suas sessões de estudo vão aparecer aqui, agrupadas por dia.</div>
+        </div>
+      </div>
+
+    </section>
+
   </main>
 </div>
 
@@ -259,6 +330,35 @@
       </label>
       <button type="submit" class="btn btn-primary btn-block">Publicar</button>
     </form>
+  </div>
+</div>
+
+<!-- MODAL: MATÉRIAS (POMODORO) -->
+<div class="modal-backdrop" id="newSubjectModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Matérias</h3>
+      <button class="modal-close" id="closeNewSubjectModal">&times;</button>
+    </div>
+    <form id="newSubjectForm">
+      <label class="field">
+        <span>Nome da matéria</span>
+        <input type="text" id="newSubjectName" required placeholder="Ex.: Inglês, Cálculo, React...">
+      </label>
+      <label class="field">
+        <span>Cor</span>
+        <div class="color-picker" id="subjectColorPicker">
+          <button type="button" class="color-swatch" data-color="#F2B84B" style="background:#F2B84B"></button>
+          <button type="button" class="color-swatch" data-color="#4FA3E3" style="background:#4FA3E3"></button>
+          <button type="button" class="color-swatch" data-color="#C15FF2" style="background:#C15FF2"></button>
+          <button type="button" class="color-swatch" data-color="#4CD9A0" style="background:#4CD9A0"></button>
+          <button type="button" class="color-swatch" data-color="#F26B6B" style="background:#F26B6B"></button>
+          <button type="button" class="color-swatch" data-color="#8B90AC" style="background:#8B90AC"></button>
+        </div>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">Adicionar matéria</button>
+    </form>
+    <div class="subject-manage-list" id="subjectManageList"></div>
   </div>
 </div>
 
