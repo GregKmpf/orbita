@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -126,10 +126,18 @@
       <div class="calendar-legend" id="calendarLegend"></div>
 
       <div class="calendar-study-summary" id="calendarStudySummary">
-        <div class="study-summary-head">
-          <h3>Resumo de estudo</h3>
-          <span class="study-summary-total" id="studySummaryTotal">0min</span>
+        <h3 class="study-summary-title">Resumo de estudo</h3>
+        <div class="study-summary-totals">
+          <div class="study-summary-total-card">
+            <span class="study-summary-total-label">Neste mês</span>
+            <span class="study-summary-total-value" id="studySummaryMonthTotal">0min</span>
+          </div>
+          <div class="study-summary-total-card">
+            <span class="study-summary-total-label">Neste ano</span>
+            <span class="study-summary-total-value" id="studySummaryYearTotal">0min</span>
+          </div>
         </div>
+        <div class="study-summary-subhead">Por matéria neste mês</div>
         <div class="pomo-breakdown-list" id="studySummaryList"></div>
       </div>
     </section>
@@ -377,6 +385,7 @@
       <h3 id="dayModalTitle">Dia</h3>
       <button class="modal-close" id="closeDayModal">&times;</button>
     </div>
+    <div id="dayModalStudy" class="day-modal-study"></div>
     <div id="dayModalList" class="day-modal-list"></div>
   </div>
 </div>
@@ -404,6 +413,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

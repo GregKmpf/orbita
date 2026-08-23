@@ -420,6 +420,8 @@ function subscribeSessions(uid){
       };
     });
     renderPomodoroStats();
+    if (document.getElementById("view-calendario").classList.contains("active")) renderCalendar();
+    if (document.getElementById("view-coruja").classList.contains("active")) renderCoruja();
   }, (err) => {
     console.error(err);
     showToast("Erro ao carregar sessões: " + err.message);
@@ -1084,20 +1086,31 @@ function renderCalendar(){
 }
 
 function renderCalendarStudySummary(){
-  const totalEl = document.getElementById("studySummaryTotal");
+  const { year, month } = calendarCursor;
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}-`;
+  const yearPrefix = `${year}-`;
+
+  const monthSessions = pomoSessions.filter(s => s.dateStr && s.dateStr.startsWith(monthPrefix));
+  const yearSessions = pomoSessions.filter(s => s.dateStr && s.dateStr.startsWith(yearPrefix));
+
+  const monthTotal = monthSessions.reduce((sum, s) => sum + s.minutes, 0);
+  const yearTotal = yearSessions.reduce((sum, s) => sum + s.minutes, 0);
+
+  const monthTotalEl = document.getElementById("studySummaryMonthTotal");
+  const yearTotalEl = document.getElementById("studySummaryYearTotal");
+  if (monthTotalEl) monthTotalEl.textContent = formatMinutes(monthTotal);
+  if (yearTotalEl) yearTotalEl.textContent = formatMinutes(yearTotal);
+
   const listEl = document.getElementById("studySummaryList");
-  if (!totalEl || !listEl) return;
+  if (!listEl) return;
 
-  const allTimeTotal = pomoSessions.reduce((sum, s) => sum + s.minutes, 0);
-  totalEl.textContent = formatMinutes(allTimeTotal);
-
-  if (pomoSessions.length === 0){
-    listEl.innerHTML = `<div class="pomo-breakdown-empty">Nenhuma sessão de estudo registrada ainda. Use a aba Pomodoro para começar a contar suas horas.</div>`;
+  if (monthSessions.length === 0){
+    listEl.innerHTML = `<div class="pomo-breakdown-empty">Nenhuma sessão de estudo registrada neste mês ainda.</div>`;
     return;
   }
 
   const bySubject = {};
-  pomoSessions.forEach(s => {
+  monthSessions.forEach(s => {
     const key = s.subjectId || s.subjectName;
     if (!bySubject[key]) bySubject[key] = { name: s.subjectName, color: s.color, minutes: 0 };
     bySubject[key].minutes += s.minutes;
@@ -1140,10 +1153,58 @@ document.getElementById("calendarGrid").addEventListener("click", (e) => {
   openDayModal(cell.dataset.date);
 });
 
+function renderDayModalStudy(dateStr){
+  const container = document.getElementById("dayModalStudy");
+  if (!container) return;
+  const daySessions = pomoSessions.filter(s => s.dateStr === dateStr);
+  const total = daySessions.reduce((sum, s) => sum + s.minutes, 0);
+
+  if (daySessions.length === 0){
+    container.innerHTML = `
+      <div class="day-modal-study-head">
+        <span>Tempo estudado</span>
+        <span class="day-modal-study-total">0min</span>
+      </div>
+      <div class="pomo-breakdown-empty">Nenhuma sessão de estudo registrada neste dia.</div>
+    `;
+    return;
+  }
+
+  const bySubject = {};
+  daySessions.forEach(s => {
+    const key = s.subjectId || s.subjectName;
+    if (!bySubject[key]) bySubject[key] = { name: s.subjectName, color: s.color, minutes: 0 };
+    bySubject[key].minutes += s.minutes;
+  });
+  const rows = Object.values(bySubject).sort((a, b) => b.minutes - a.minutes);
+  const max = Math.max(...rows.map(r => r.minutes));
+
+  container.innerHTML = `
+    <div class="day-modal-study-head">
+      <span>Tempo estudado</span>
+      <span class="day-modal-study-total">${formatMinutes(total)}</span>
+    </div>
+    <div class="pomo-breakdown-list">
+      ${rows.map(r => `
+        <div class="pomo-breakdown-row">
+          <div class="pomo-breakdown-row-top">
+            <span class="name"><span class="dot" style="background:${r.color}"></span>${esc(r.name)}</span>
+            <span class="time">${formatMinutes(r.minutes)}</span>
+          </div>
+          <div class="pomo-breakdown-bar-track">
+            <div class="pomo-breakdown-bar-fill" style="width:${max > 0 ? (r.minutes / max) * 100 : 0}%; background:${r.color}"></div>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function openDayModal(dateStr){
   const [y,m,d] = dateStr.split("-").map(Number);
   const label = `${d} de ${MONTH_NAMES[m-1]} de ${y}`;
   document.getElementById("dayModalTitle").textContent = label;
+  renderDayModalStudy(dateStr);
   const list = document.getElementById("dayModalList");
 
   if (goals.length === 0){
