@@ -122,6 +122,21 @@ button{font-family:inherit;}
 .auth-sub{color:var(--ink-500); font-size:13.5px; margin-bottom:26px; line-height:1.5;}
 .auth-error{color:var(--danger); font-size:13px; margin-top:10px;}
 .auth-hint{color:var(--ink-700); font-size:12px; margin-top:18px; line-height:1.5;}
+
+.btn-google{
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  background:#ffffff; color:#1f1f1f; border-color:transparent;
+  font-weight:600;
+}
+.btn-google:hover{ background:#f3f3f3; }
+.google-icon{ width:18px; height:18px; flex-shrink:0; }
+.auth-divider{
+  display:flex; align-items:center; gap:12px; margin:20px 0 16px;
+  color:var(--ink-700); font-size:11.5px;
+}
+.auth-divider::before, .auth-divider::after{
+  content:""; flex:1; height:1px; background:var(--border);
+}
 .auth-hint code{color:var(--ink-500);}
 
 /* ---------- App shell ---------- */

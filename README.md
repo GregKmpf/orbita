@@ -43,11 +43,18 @@ para você (protegido por login e senha).
 2. Clique em **Adicionar projeto**, dê um nome (ex.: `orbita-metas`) e conclua a criação.
    Pode desativar o Google Analytics, não é necessário.
 
-### 2.2 Ativar login por e-mail/senha
+### 2.2 Ativar login por e-mail/senha e por Google
 
 1. No menu lateral, vá em **Build > Authentication**.
 2. Clique em **Get started**.
 3. Na aba **Sign-in method**, ative o provedor **Email/Password**.
+4. Ainda na aba **Sign-in method**, clique em **Add new provider** > **Google**,
+   ative o toggle e escolha um e-mail de suporte (pode ser o seu). Clique em **Save**.
+
+> O site usa os dois: e-mail/senha só continua funcionando para a conta que você já
+> criou (não existe mais botão de "criar conta" na tela), e o "Entrar com Google"
+> fica aberto para qualquer conta Google — cada uma com seus próprios dados isolados
+> pelas regras do Firestore.
 
 ### 2.3 Criar o banco de dados (Firestore)
 

@@ -162,8 +162,6 @@ function getRank(streak){
 /* ---------------------------------------------------------
    3. Firebase Auth
 --------------------------------------------------------- */
-let authMode = "login";
-
 const authScreen = document.getElementById("authScreen");
 const appEl = document.getElementById("app");
 const authForm = document.getElementById("authForm");
@@ -171,18 +169,11 @@ const authEmail = document.getElementById("authEmail");
 const authPassword = document.getElementById("authPassword");
 const authError = document.getElementById("authError");
 const authSubmitBtn = document.getElementById("authSubmitBtn");
-const authToggleMode = document.getElementById("authToggleMode");
+const googleSignInBtn = document.getElementById("googleSignInBtn");
 const userEmailLabel = document.getElementById("userEmailLabel");
+const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-authToggleMode.addEventListener("click", () => {
-  authMode = authMode === "login" ? "signup" : "login";
-  authSubmitBtn.textContent = authMode === "login" ? "Entrar" : "Criar conta";
-  authToggleMode.textContent = authMode === "login"
-    ? "Ainda não tenho conta — criar agora"
-    : "Já tenho conta — entrar";
-  authError.hidden = true;
-});
-
+// Login por e-mail/senha — só para contas já existentes (sem opção de criar conta nova).
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   authError.hidden = true;
@@ -190,16 +181,28 @@ authForm.addEventListener("submit", async (e) => {
   const password = authPassword.value;
   authSubmitBtn.disabled = true;
   try{
-    if (authMode === "login"){
-      await auth.signInWithEmailAndPassword(email, password);
-    } else {
-      await auth.createUserWithEmailAndPassword(email, password);
-    }
+    await auth.signInWithEmailAndPassword(email, password);
   } catch(err){
     authError.textContent = traduzErroFirebase(err);
     authError.hidden = false;
   } finally {
     authSubmitBtn.disabled = false;
+  }
+});
+
+// Login com qualquer conta Google.
+googleSignInBtn.addEventListener("click", async () => {
+  authError.hidden = true;
+  googleSignInBtn.disabled = true;
+  try{
+    await auth.signInWithPopup(googleProvider);
+  } catch(err){
+    if (err.code !== "auth/popup-closed-by-user" && err.code !== "auth/cancelled-popup-request"){
+      authError.textContent = traduzErroFirebase(err);
+      authError.hidden = false;
+    }
+  } finally {
+    googleSignInBtn.disabled = false;
   }
 });
 
@@ -215,6 +218,9 @@ function traduzErroFirebase(err){
     "auth/invalid-credential": "E-mail ou senha incorretos.",
     "auth/network-request-failed": "Falha de rede. Verifique sua conexão.",
     "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "Configuração do Firebase inválida — confira firebase-config.js.",
+    "auth/popup-blocked": "O navegador bloqueou a janela do Google. Permita pop-ups para este site e tente de novo.",
+    "auth/account-exists-with-different-credential": "Esse e-mail já tem conta com senha. Entre usando e-mail e senha.",
+    "auth/operation-not-allowed": "Login com Google ainda não foi ativado no Firebase (veja o README.md).",
   };
   return map[err.code] || (err.message || "Não foi possível concluir. Tente novamente.");
 }
