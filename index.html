@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -331,7 +331,11 @@
       </label>
       <label class="field">
         <span>Conteúdo</span>
-        <textarea id="newPostContent" required placeholder="Escreva aqui..."></textarea>
+        <div class="editor-toolbar">
+          <button type="button" class="editor-tool-btn" id="insertCodeBlockBtn">&lt;/&gt; Bloco de código</button>
+          <span class="editor-hint">ou digite ```linguagem antes do trecho e ``` depois, ex.: ```python</span>
+        </div>
+        <textarea id="newPostContent" class="post-editor-textarea" required placeholder="Escreva suas anotações aqui. Separe parágrafos com uma linha em branco. Use o botão acima para colar um trecho de código."></textarea>
       </label>
       <label class="field">
         <span>Tags</span>
@@ -413,6 +417,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

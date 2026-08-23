@@ -1,5 +1,7 @@
 # Órbita — metas em sequência
 
+https://gregkmpf.github.io/orbita/
+
 Site de produtividade com metas diárias/semanais/mensais, calendário de atividades,
 sequências (streaks) e sistema de níveis. Feito em HTML/CSS/JS puro, pronto para
 GitHub Pages, com dados salvos no **Firebase** (assim funcionam em qualquer navegador,
@@ -65,12 +67,26 @@ service cloud.firestore {
     match /users/{userId}/goals/{goalId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /users/{userId}/posts/{postId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/subjects/{subjectId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/pomodoroSessions/{sessionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 ```
 
-Isso garante que **cada usuário só consegue ler e escrever os próprios dados**.
-Clique em **Publish**.
+Isso garante que **cada usuário só consegue ler e escrever os próprios dados**
+(metas, publicações, matérias e sessões de estudo). Clique em **Publish**.
+
+> Sempre que adicionar uma funcionalidade nova que crie uma coleção (como
+> aconteceu aqui com `subjects` e `pomodoroSessions`), volte em
+> **Firestore Database > Rules** e cole a versão atualizada, senão a nova
+> funcionalidade falha com erro de permissão.
 
 ### 2.5 Pegar as chaves de configuração
 
@@ -137,3 +153,37 @@ firebase-config.js   → suas chaves do Firebase (edite este arquivo)
 Os dados ficam salvos no Firestore em:
 `users/{seu-uid}/goals/{id-da-meta}` — cada meta guarda nome, tipo, cor e a lista de
 datas em que foi concluída.
+`users/{seu-uid}/posts/{id-da-publicação}` — cada publicação guarda título,
+conteúdo, tags e data de criação.
+`users/{seu-uid}/subjects/{id-da-matéria}` — cada matéria de estudo guarda nome e cor.
+`users/{seu-uid}/pomodoroSessions/{id-da-sessão}` — cada sessão guarda a matéria,
+os minutos estudados e a data.
+
+---
+
+## 6. Publicações (mini-blog)
+
+Na aba **Metas**, logo abaixo das colunas de metas, existe a seção **Publicações**.
+Ali você pode escrever textos livres (estudos, anotações, o que quiser), marcar tags
+como `código` ou `trabalho` (ou criar tags novas digitando e pressionando Enter) e
+publicar. Cada publicação ocupa a largura total da área de conteúdo, uma embaixo da
+outra, e dá para filtrar a lista clicando em uma tag no topo da seção.
+
+---
+
+## 7. Pomodoro
+
+Na aba **Pomodoro**, você registra o tempo estudado por matéria:
+
+1. Clique em **"+ gerenciar matérias"** para cadastrar as matérias que você estuda
+   (ex.: Inglês, Cálculo, React), cada uma com uma cor.
+2. Selecione a matéria clicando no chip dela, escolha a duração do foco (15, 25, 45
+   ou 60 min) e clique em **Iniciar**.
+3. Quando o cronômetro de foco chega a zero, o tempo é registrado automaticamente
+   para aquela matéria naquele dia, e o app entra em modo pausa. Se você pular a
+   fase de foco antes de terminar, o tempo decorrido (se maior que 1 minuto) também
+   é registrado.
+4. A seção **"Hoje"** mostra o total do dia e o total geral; **"Hoje por matéria"**
+   mostra a divisão do dia; e **"Histórico"** lista todas as sessões agrupadas por
+   dia, com opção de excluir um registro individual (útil se você errou a matéria
+   ou quer limpar um teste).

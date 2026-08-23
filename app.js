@@ -614,6 +614,34 @@ document.getElementById("newGoalForm").addEventListener("submit", async (e) => {
 /* ---------------------------------------------------------
    8b. Publicações — render, filtro por tag e modal
 --------------------------------------------------------- */
+function renderPostTextChunk(text){
+  const trimmed = text.replace(/^\n+|\n+$/g, "");
+  if (!trimmed) return "";
+  return trimmed.split(/\n{2,}/).map(para => {
+    const safe = esc(para).replace(/\n/g, "<br>");
+    return `<p class="post-content">${safe}</p>`;
+  }).join("");
+}
+
+function renderPostBody(content){
+  const regex = /```([a-zA-Z0-9+#.\-]*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0, match, html = "";
+  while ((match = regex.exec(content)) !== null){
+    if (match.index > lastIndex) html += renderPostTextChunk(content.slice(lastIndex, match.index));
+    const lang = match[1] || "código";
+    const code = match[2].replace(/\n$/, "");
+    html += `
+      <div class="post-code-block">
+        <div class="post-code-head"><span>${esc(lang)}</span></div>
+        <pre class="post-code"><code>${esc(code)}</code></pre>
+      </div>
+    `;
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < content.length) html += renderPostTextChunk(content.slice(lastIndex));
+  return html || renderPostTextChunk(content);
+}
+
 function formatPostDate(ts){
   if (!ts || typeof ts.toDate !== "function") return "agora há pouco";
   const d = ts.toDate();
@@ -663,7 +691,7 @@ function renderPosts(){
         </div>
         <button class="post-delete" data-id="${p.id}" title="Excluir publicação">🗑</button>
       </div>
-      <p class="post-content">${esc(p.content)}</p>
+      <div class="post-body">${renderPostBody(p.content)}</div>
       ${p.tags.length ? `<div class="post-tags">${p.tags.map(t => `<span class="post-tag">${esc(t)}</span>`).join("")}</div>` : ""}
     </article>
   `).join("");
@@ -702,6 +730,25 @@ document.getElementById("openNewPostBtn").addEventListener("click", () => {
   openModal("newPostModal");
 });
 document.getElementById("closeNewPostModal").addEventListener("click", () => closeModal("newPostModal"));
+
+document.getElementById("insertCodeBlockBtn").addEventListener("click", () => {
+  const textarea = document.getElementById("newPostContent");
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const before = textarea.value.slice(0, start);
+  const selected = textarea.value.slice(start, end);
+  const after = textarea.value.slice(end);
+  const needsNewlineBefore = before.length > 0 && !before.endsWith("\n");
+  const body = selected || "seu código aqui";
+  const snippet = `${needsNewlineBefore ? "\n" : ""}\`\`\`linguagem\n${body}\n\`\`\`\n`;
+
+  textarea.value = before + snippet + after;
+
+  const langStart = before.length + (needsNewlineBefore ? 1 : 0) + 3;
+  const langEnd = langStart + "linguagem".length;
+  textarea.focus();
+  textarea.setSelectionRange(langStart, langEnd);
+});
 
 document.getElementById("tagPicker").addEventListener("click", (e) => {
   const chip = e.target.closest(".tag-chip");
