@@ -76,15 +76,18 @@ service cloud.firestore {
     match /users/{userId}/pomodoroSessions/{sessionId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /users/{userId}/tasks/{taskId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 ```
 
 Isso garante que **cada usuário só consegue ler e escrever os próprios dados**
-(metas, publicações, matérias e sessões de estudo). Clique em **Publish**.
+(metas, publicações, matérias, sessões de estudo e atividades). Clique em **Publish**.
 
 > Sempre que adicionar uma funcionalidade nova que crie uma coleção (como
-> aconteceu aqui com `subjects` e `pomodoroSessions`), volte em
+> aconteceu aqui com `subjects`, `pomodoroSessions` e `tasks`), volte em
 > **Firestore Database > Rules** e cole a versão atualizada, senão a nova
 > funcionalidade falha com erro de permissão.
 

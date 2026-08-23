@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -140,6 +140,11 @@
         <div class="study-summary-subhead">Por matéria neste mês</div>
         <div class="pomo-breakdown-list" id="studySummaryList"></div>
       </div>
+
+      <div class="upcoming-tasks" id="upcomingTasks">
+        <h3 class="upcoming-tasks-title">Próximas atividades</h3>
+        <div class="upcoming-tasks-list" id="upcomingTasksList"></div>
+      </div>
     </section>
 
     <!-- VIEW: CORUJA (XP) -->
@@ -205,6 +210,11 @@
           <p class="owl-hint">Toda vez que você concluir uma meta, ela ganha XP: diárias valem 10, semanais 25 e mensais 50. Não existe teto — ela cresce para sempre junto com suas sequências.</p>
         </div>
 
+      </div>
+
+      <div class="owl-tiers-wrap">
+        <h3 class="owl-tiers-title">Evoluções da coruja</h3>
+        <div class="owl-tiers" id="owlTiers"></div>
       </div>
     </section>
 
@@ -390,6 +400,7 @@
       <button class="modal-close" id="closeDayModal">&times;</button>
     </div>
     <div id="dayModalStudy" class="day-modal-study"></div>
+    <div id="dayModalTasks" class="day-modal-tasks-wrap"></div>
     <div id="dayModalList" class="day-modal-list"></div>
   </div>
 </div>
@@ -417,6 +428,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

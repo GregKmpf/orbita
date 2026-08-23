@@ -30,6 +30,10 @@ let selectedSubjectId = null;
 let selectedSubjectColor = "#F2B84B";   // cor escolhida no modal de nova matéria
 
 let pomoPhase = "focus";        // 'focus' | 'break'
+
+/* ---- Atividades avulsas (tasks) ---- */
+let tasks = [];                 // array de {id, title, dueDate, done, completedDate, createdAt}
+let tasksUnsub = null;
 let pomoRunning = false;
 let pomoInterval = null;
 let pomoFocusMinutes = 25;
@@ -65,10 +69,10 @@ function levelForXP(xp){
   return level;
 }
 const OWL_TIERS = [
-  { minLevel:50, key:"omega",         label:"Coruja Ômega",     color:"var(--rank-omega)" },
-  { minLevel:25, key:"estrela",       label:"Coruja Estelar",   color:"var(--rank-estrela)" },
-  { minLevel:10, key:"intermediario", label:"Coruja Vigilante", color:"var(--rank-intermediario)" },
-  { minLevel:1,  key:"basico",        label:"Coruja Filhote",   color:"var(--rank-basico)" },
+  { minLevel:50, maxLevel:null, key:"omega",         label:"Coruja Ômega",     color:"var(--rank-omega)" },
+  { minLevel:25, maxLevel:49,   key:"estrela",       label:"Coruja Estelar",   color:"var(--rank-estrela)" },
+  { minLevel:10, maxLevel:24,   key:"intermediario", label:"Coruja Vigilante", color:"var(--rank-intermediario)" },
+  { minLevel:1,  maxLevel:9,    key:"basico",        label:"Coruja Filhote",   color:"var(--rank-basico)" },
 ];
 function getOwlTier(level){
   for (const t of OWL_TIERS) if (level >= t.minLevel) return t;
@@ -125,8 +129,14 @@ function currentIndexFor(type){
 --------------------------------------------------------- */
 function computeStreaks(completions, type){
   const idxFn = indexFnFor(type);
-  const indices = Array.from(new Set(completions.map(idxFn))).sort((a,b) => a-b);
-  if (indices.length === 0) return { current:0, best:0, indexSet:new Set() };
+  const allIndices = Array.from(new Set(completions.map(idxFn))).sort((a,b) => a-b);
+  if (allIndices.length === 0) return { current:0, best:0, indexSet:new Set() };
+
+  const todayIdx = currentIndexFor(type);
+  // Datas futuras (ex.: marcadas por engano, ou testes) não contam para a sequência atual
+  // nem para o recorde — evita que uma data "adiantada" quebre o cálculo.
+  const indices = allIndices.filter(i => i <= todayIdx);
+  if (indices.length === 0) return { current:0, best:0, indexSet:new Set(allIndices) };
 
   let best = 1, run = 1;
   for (let i=1; i<indices.length; i++){
@@ -134,7 +144,6 @@ function computeStreaks(completions, type){
     if (run > best) best = run;
   }
 
-  const todayIdx = currentIndexFor(type);
   const lastIdx = indices[indices.length - 1];
   let current = 0;
   if (lastIdx === todayIdx || lastIdx === todayIdx - 1){
@@ -143,7 +152,7 @@ function computeStreaks(completions, type){
       if (indices[i] === indices[i+1] - 1) current++; else break;
     }
   }
-  return { current, best, indexSet:new Set(indices) };
+  return { current, best, indexSet:new Set(allIndices) };
 }
 function getRank(streak){
   for (const r of RANKS) if (streak >= r.min) return r;
@@ -219,6 +228,7 @@ auth.onAuthStateChanged((user) => {
     subscribePosts(user.uid);
     subscribeSubjects(user.uid);
     subscribeSessions(user.uid);
+    subscribeTasks(user.uid);
   } else {
     appEl.classList.add("hidden");
     authScreen.classList.remove("hidden");
@@ -226,10 +236,12 @@ auth.onAuthStateChanged((user) => {
     if (postsUnsub) { postsUnsub(); postsUnsub = null; }
     if (subjectsUnsub) { subjectsUnsub(); subjectsUnsub = null; }
     if (sessionsUnsub) { sessionsUnsub(); sessionsUnsub = null; }
+    if (tasksUnsub) { tasksUnsub(); tasksUnsub = null; }
     goals = [];
     posts = [];
     subjects = [];
     pomoSessions = [];
+    tasks = [];
     selectedSubjectId = null;
     activeTagFilter = null;
     resetTimer();
@@ -427,6 +439,70 @@ function subscribeSessions(uid){
     showToast("Erro ao carregar sessões: " + err.message);
   });
 }
+function tasksRef(uid){
+  return db.collection("users").doc(uid).collection("tasks");
+}
+function subscribeTasks(uid){
+  if (tasksUnsub) tasksUnsub();
+  tasksUnsub = tasksRef(uid).orderBy("dueDate", "asc").onSnapshot((snap) => {
+    tasks = snap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title,
+        dueDate: data.dueDate,
+        done: !!data.done,
+        completedDate: data.completedDate || null,
+        createdAt: data.createdAt || null,
+      };
+    });
+    renderUpcomingTasks();
+    if (document.getElementById("view-calendario").classList.contains("active")) renderCalendar();
+    const openDayForm = document.getElementById("dayTaskAddForm");
+    if (openDayForm && !document.getElementById("dayModal").hidden){
+      renderDayModalTasks(openDayForm.dataset.date);
+    }
+  }, (err) => {
+    console.error(err);
+    showToast("Erro ao carregar atividades: " + err.message);
+  });
+}
+async function addTask(title, dueDate){
+  const user = auth.currentUser;
+  if (!user || !title.trim()) return;
+  try{
+    await tasksRef(user.uid).add({
+      title: title.trim(), dueDate, done:false, completedDate:null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast("Atividade adicionada.");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao adicionar atividade: " + err.message);
+  }
+}
+async function completeTask(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await tasksRef(user.uid).doc(id).update({ done:true, completedDate: todayStr() });
+    showToast("Atividade concluída!");
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao concluir atividade: " + err.message);
+  }
+}
+async function deleteTask(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await tasksRef(user.uid).doc(id).delete();
+  } catch(err){
+    console.error(err);
+    showToast("Erro ao excluir atividade: " + err.message);
+  }
+}
+
 async function logPomoSession(minutes){
   const user = auth.currentUser;
   if (!user || !selectedSubjectId || minutes < 1) return;
@@ -1110,8 +1186,13 @@ function renderCalendar(){
     const daySessions = pomoSessions.filter(s => s.dateStr === dateStr);
     const dayMinutes = daySessions.reduce((sum, s) => sum + s.minutes, 0);
     const timeBadge = dayMinutes > 0 ? `<span class="cal-day-time">${formatMinutes(dayMinutes)}</span>` : "";
+    const pendingTasks = tasks.filter(t => t.dueDate === dateStr && !t.done);
+    const taskFlag = pendingTasks.length > 0
+      ? `<span class="cal-day-task-flag" title="${pendingTasks.length} atividade(s) pendente(s)">🚩</span>`
+      : "";
     html += `
       <div class="cal-day ${dateStr === today ? "today" : ""}" data-date="${dateStr}">
+        ${taskFlag}
         <span class="cal-day-num">${day}</span>
         ${timeBadge}
         <div class="cal-day-dots">${dots}</div>
@@ -1130,6 +1211,7 @@ function renderCalendar(){
   }
 
   renderCalendarStudySummary();
+  renderUpcomingTasks();
 }
 
 function renderCalendarStudySummary(){
@@ -1247,15 +1329,50 @@ function renderDayModalStudy(dateStr){
   `;
 }
 
+function renderDayModalTasks(dateStr){
+  const container = document.getElementById("dayModalTasks");
+  if (!container) return;
+  const dayTasks = tasks.filter(t => t.dueDate === dateStr);
+  const pending = dayTasks.filter(t => !t.done);
+  const done = dayTasks.filter(t => t.done);
+  const rows = [...pending, ...done];
+
+  const rowsHtml = rows.length === 0
+    ? `<div class="day-task-empty">Nenhuma atividade cadastrada para este dia.</div>`
+    : rows.map(t => `
+        <div class="day-task-row ${t.done ? "done" : ""}">
+          <span class="day-task-title">${esc(t.title)}</span>
+          ${t.done
+            ? `<span class="day-task-done-label">✓ concluída</span>`
+            : `<button class="day-task-complete-btn" data-id="${t.id}" type="button">Concluir</button>`}
+          <button class="day-task-delete" data-id="${t.id}" type="button" title="Excluir atividade">&times;</button>
+        </div>
+      `).join("");
+
+  container.innerHTML = `
+    <div class="day-modal-tasks-head">Atividades do dia</div>
+    <div class="day-task-list">${rowsHtml}</div>
+    <form class="day-task-add-form" id="dayTaskAddForm" data-date="${dateStr}">
+      <input type="text" id="dayTaskAddInput" placeholder="Ex.: Estudar 3 horas" required>
+      <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
+    </form>
+  `;
+}
+
 function openDayModal(dateStr){
   const [y,m,d] = dateStr.split("-").map(Number);
   const label = `${d} de ${MONTH_NAMES[m-1]} de ${y}`;
   document.getElementById("dayModalTitle").textContent = label;
   renderDayModalStudy(dateStr);
+  renderDayModalTasks(dateStr);
   const list = document.getElementById("dayModalList");
+
+  const isFuture = dayIndex(dateStr) > dayIndex(todayStr());
 
   if (goals.length === 0){
     list.innerHTML = `<div class="day-goal-empty">Você ainda não tem metas cadastradas.</div>`;
+  } else if (isFuture){
+    list.innerHTML = `<div class="day-goal-empty">Metas só podem ser marcadas até o dia de hoje. Use "Atividades do dia" acima para agendar algo para esta data.</div>`;
   } else {
     list.innerHTML = goals.map(g => {
       const on = g.completions.includes(dateStr);
@@ -1277,9 +1394,117 @@ document.getElementById("dayModalList").addEventListener("click", async (e) => {
   openDayModal(btn.dataset.date); // re-render com estado atualizado
 });
 
+document.getElementById("dayModalTasks").addEventListener("click", async (e) => {
+  const completeBtn = e.target.closest(".day-task-complete-btn");
+  const deleteBtn = e.target.closest(".day-task-delete");
+  if (completeBtn){
+    await completeTask(completeBtn.dataset.id);
+    openDayModal(document.getElementById("dayTaskAddForm").dataset.date);
+  } else if (deleteBtn){
+    await deleteTask(deleteBtn.dataset.id);
+    openDayModal(document.getElementById("dayTaskAddForm").dataset.date);
+  }
+});
+
+document.getElementById("dayModalTasks").addEventListener("submit", async (e) => {
+  const form = e.target.closest("#dayTaskAddForm");
+  if (!form) return;
+  e.preventDefault();
+  const input = document.getElementById("dayTaskAddInput");
+  const title = input.value.trim();
+  if (!title) return;
+  await addTask(title, form.dataset.date);
+  openDayModal(form.dataset.date);
+});
+
+function renderUpcomingTasks(){
+  const listEl = document.getElementById("upcomingTasksList");
+  if (!listEl) return;
+  const todayIdx = dayIndex(todayStr());
+  const pending = tasks.filter(t => !t.done).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  if (pending.length === 0){
+    listEl.innerHTML = `<div class="upcoming-tasks-empty">Nenhuma atividade pendente. Clique em um dia do calendário para adicionar uma.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = pending.map(t => {
+    const [y, m, d] = t.dueDate.split("-").map(Number);
+    const dateLabel = `${d} de ${MONTH_NAMES[m-1]}`;
+    const overdue = dayIndex(t.dueDate) < todayIdx;
+    return `
+      <div class="upcoming-task-row ${overdue ? "overdue" : ""}">
+        <div class="upcoming-task-info">
+          <span class="upcoming-task-title">${esc(t.title)}</span>
+          <span class="upcoming-task-date">${dateLabel}${overdue ? " · atrasada" : ""}</span>
+        </div>
+        <div class="upcoming-task-actions">
+          <button class="btn btn-ghost btn-sm upcoming-task-complete" data-id="${t.id}" type="button">Concluir atividade</button>
+          <button class="upcoming-task-delete" data-id="${t.id}" type="button" title="Excluir">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+document.getElementById("upcomingTasksList").addEventListener("click", async (e) => {
+  const completeBtn = e.target.closest(".upcoming-task-complete");
+  const deleteBtn = e.target.closest(".upcoming-task-delete");
+  if (completeBtn) await completeTask(completeBtn.dataset.id);
+  else if (deleteBtn) await deleteTask(deleteBtn.dataset.id);
+});
+
 /* ---------------------------------------------------------
    10.5 Coruja (XP)
 --------------------------------------------------------- */
+function miniOwlSvg(){
+  return `<svg viewBox="0 0 200 220" aria-hidden="true">
+    <ellipse class="owl-wing" cx="42" cy="132" rx="19" ry="44"></ellipse>
+    <ellipse class="owl-wing" cx="158" cy="132" rx="19" ry="44"></ellipse>
+    <circle class="owl-feather" cx="38" cy="112" r="2.2"></circle>
+    <circle class="owl-feather" cx="34" cy="130" r="2.2"></circle>
+    <circle class="owl-feather" cx="40" cy="148" r="2.2"></circle>
+    <circle class="owl-feather" cx="162" cy="112" r="2.2"></circle>
+    <circle class="owl-feather" cx="166" cy="130" r="2.2"></circle>
+    <circle class="owl-feather" cx="160" cy="148" r="2.2"></circle>
+    <polygon class="owl-body-part" points="58,58 70,12 83,60"></polygon>
+    <polygon class="owl-body-part" points="117,60 130,12 142,58"></polygon>
+    <ellipse class="owl-body-part" cx="100" cy="118" rx="60" ry="66"></ellipse>
+    <circle class="owl-eye-socket" cx="78" cy="108" r="22"></circle>
+    <circle class="owl-eye-socket" cx="122" cy="108" r="22"></circle>
+    <circle class="owl-eye-white" cx="78" cy="108" r="16.5"></circle>
+    <circle class="owl-eye-white" cx="122" cy="108" r="16.5"></circle>
+    <circle class="owl-eye-pupil" cx="78" cy="108" r="7.5"></circle>
+    <circle class="owl-eye-pupil" cx="122" cy="108" r="7.5"></circle>
+    <circle class="owl-eye-glint" cx="74" cy="103" r="2.6"></circle>
+    <circle class="owl-eye-glint" cx="118" cy="103" r="2.6"></circle>
+    <polygon class="owl-beak" points="100,120 91,135 109,135"></polygon>
+  </svg>`;
+}
+
+function renderOwlTierGallery(currentLevel){
+  const container = document.getElementById("owlTiers");
+  if (!container) return;
+  const ascending = [...OWL_TIERS].reverse(); // Filhote -> Vigilante -> Estelar -> Ômega
+
+  container.innerHTML = ascending.map(t => {
+    const unlocked = currentLevel >= t.minLevel;
+    const isCurrent = unlocked && (t.maxLevel === null || currentLevel <= t.maxLevel);
+    const rangeLabel = t.maxLevel ? `Nível ${t.minLevel}–${t.maxLevel}` : `Nível ${t.minLevel}+`;
+    const statusLabel = isCurrent ? "Atual" : unlocked ? "Conquistada" : "Bloqueada";
+    const statusClass = isCurrent ? "current" : unlocked ? "achieved" : "locked";
+    return `
+      <div class="owl-tier-card ${unlocked ? "unlocked" : ""} ${isCurrent ? "current" : ""}" style="--tier-color:${t.color}">
+        ${!unlocked ? `<span class="owl-tier-lock">🔒</span>` : ""}
+        <div class="owl-tier-owl" style="--owl-color:${t.color}">${miniOwlSvg()}</div>
+        <div class="owl-tier-name">${t.label}</div>
+        <div class="owl-tier-range">${rangeLabel}</div>
+        <div class="owl-tier-status ${statusClass}">${statusLabel}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 function renderCoruja(){
   const state = computeOwlState();
 
@@ -1300,6 +1525,8 @@ function renderCoruja(){
     `${state.into.toLocaleString("pt-BR")} / ${state.span.toLocaleString("pt-BR")} XP para o nível ${state.level + 1}`;
   document.getElementById("owlTotalXp").textContent = state.totalXp.toLocaleString("pt-BR");
   document.getElementById("owlTotalCompletions").textContent = state.totalCompletions.toLocaleString("pt-BR");
+
+  renderOwlTierGallery(state.level);
 }
 
 /* ---------------------------------------------------------
