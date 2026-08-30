@@ -40,6 +40,7 @@ let pomoFocusMinutes = 25;
 let pomoBreakMinutes = 5;
 let pomoRemainingSeconds = pomoFocusMinutes * 60;
 let pomoFocusElapsedSeconds = 0;
+let pomoPhaseEndAt = null; // timestamp (ms) em que a fase atual deve zerar
 const POMO_RING_CIRCUMFERENCE = 2 * Math.PI * 88;
 
 const MONTH_NAMES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
@@ -981,8 +982,10 @@ function updateTimerDisplay(){
   });
 }
 function tickTimer(){
-  pomoRemainingSeconds--;
-  if (pomoPhase === "focus") pomoFocusElapsedSeconds++;
+  if (!pomoRunning || pomoPhaseEndAt === null) return;
+  const secondsLeft = Math.max(0, Math.round((pomoPhaseEndAt - Date.now()) / 1000));
+  if (pomoPhase === "focus") pomoFocusElapsedSeconds = currentPhaseTotalSeconds() - secondsLeft;
+  pomoRemainingSeconds = secondsLeft;
   if (pomoRemainingSeconds <= 0){
     completePhase();
   } else {
@@ -996,15 +999,26 @@ function startTimer(){
     return;
   }
   pomoRunning = true;
+  pomoPhaseEndAt = Date.now() + pomoRemainingSeconds * 1000;
   pomoInterval = setInterval(tickTimer, 1000);
   updateTimerDisplay();
 }
 function pauseTimer(){
+  if (pomoRunning && pomoPhaseEndAt !== null){
+    pomoRemainingSeconds = Math.max(0, Math.round((pomoPhaseEndAt - Date.now()) / 1000));
+  }
   pomoRunning = false;
+  pomoPhaseEndAt = null;
   clearInterval(pomoInterval);
   pomoInterval = null;
   updateTimerDisplay();
 }
+// Quando a aba volta a ficar visível, corrige o timer imediatamente em vez de
+// esperar o próximo tick (o navegador reduz drasticamente a frequência de
+// setInterval em abas em segundo plano, o que fazia o cronômetro "atrasar").
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && pomoRunning) tickTimer();
+});
 function resetTimer(){
   pauseTimer();
   pomoPhase = "focus";
