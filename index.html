@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -66,6 +66,7 @@
       <button class="tab-btn" data-view="calendario">Calendário</button>
       <button class="tab-btn" data-view="coruja">Coruja</button>
       <button class="tab-btn" data-view="pomodoro">Pomodoro</button>
+      <button class="tab-btn" data-view="projetos">Projetos</button>
     </nav>
     <div class="topbar-actions">
       <span class="user-email" id="userEmailLabel"></span>
@@ -299,6 +300,51 @@
 
     </section>
 
+    <!-- VIEW: PROJETOS -->
+    <section id="view-projetos" class="view">
+
+      <!-- visão geral: todos os projetos -->
+      <div id="projOverview">
+        <div class="proj-header">
+          <h2>Projetos</h2>
+          <button class="btn btn-primary" id="openNewProjectBtn">+ Novo projeto</button>
+        </div>
+        <div class="dashboard" id="projDashboard"></div>
+        <div class="proj-filter" id="projFilter"></div>
+        <div class="proj-grid" id="projGrid"></div>
+
+        <div class="upcoming-tasks" id="projAgendaWrap" hidden>
+          <h3 class="upcoming-tasks-title">Próximos prazos — todos os projetos</h3>
+          <div class="upcoming-tasks-list" id="projAgenda"></div>
+        </div>
+      </div>
+
+      <!-- detalhe de um projeto -->
+      <div id="projDetail" class="proj-detail" hidden>
+        <button class="btn btn-ghost btn-sm" id="projBackBtn">&#8592; Todos os projetos</button>
+        <div class="proj-head" id="projDetailHead"></div>
+        <div class="dashboard proj-stats" id="projDetailStats"></div>
+        <div class="proj-phase-bar" id="projPhaseBar"></div>
+
+        <div class="proj-toolbar">
+          <form id="projQuickAddForm" class="proj-quick-add">
+            <input type="text" id="projQuickAddInput" placeholder="Nova tarefa e Enter…" autocomplete="off">
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
+          </form>
+          <button type="button" class="btn btn-ghost btn-sm" id="projDetailTaskBtn">+ Tarefa detalhada</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="projBulkBtn">+ Várias de uma vez</button>
+          <div class="proj-view-toggle" id="projViewToggle">
+            <button type="button" data-v="board" class="active">Quadro</button>
+            <button type="button" data-v="list">Lista</button>
+          </div>
+          <label class="proj-hide-done"><input type="checkbox" id="projHideDone"> Ocultar concluídas</label>
+        </div>
+
+        <div id="projContent"></div>
+      </div>
+
+    </section>
+
   </main>
 </div>
 
@@ -403,6 +449,158 @@
   </div>
 </div>
 
+<!-- MODAL: PROJETO (criar / editar) -->
+<div class="modal-backdrop" id="projectModal" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="projectModalTitle">Novo projeto</h3>
+      <button class="modal-close" id="closeProjectModal" type="button">&times;</button>
+    </div>
+    <form id="projectForm">
+      <label class="field">
+        <span>Nome do projeto</span>
+        <input type="text" id="projName" required maxlength="80" placeholder="Ex.: TCC — Sistemas de Informação">
+      </label>
+      <label class="field">
+        <span>Descrição (opcional)</span>
+        <textarea id="projDesc" rows="2" maxlength="300" placeholder="Objetivo, tema, cliente…"></textarea>
+      </label>
+      <div class="field-row">
+        <label class="field" id="projTemplateRow">
+          <span>Modelo</span>
+          <select id="projTemplate">
+            <option value="tcc">TCC / Monografia</option>
+            <option value="site">Website</option>
+            <option value="app">App / Software</option>
+            <option value="blank">Em branco</option>
+          </select>
+        </label>
+        <label class="field" id="projStatusRow" hidden>
+          <span>Status</span>
+          <select id="projStatusSel">
+            <option value="active">Ativo</option>
+            <option value="paused">Pausado</option>
+            <option value="done">Concluído</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Prazo final</span>
+          <input type="date" id="projDeadline">
+        </label>
+      </div>
+      <label class="field">
+        <span>Cor</span>
+        <div class="color-picker" id="projectColorPicker">
+          <button type="button" class="color-swatch" data-color="#F2B84B" style="background:#F2B84B"></button>
+          <button type="button" class="color-swatch" data-color="#4FA3E3" style="background:#4FA3E3"></button>
+          <button type="button" class="color-swatch" data-color="#C15FF2" style="background:#C15FF2"></button>
+          <button type="button" class="color-swatch" data-color="#4CD9A0" style="background:#4CD9A0"></button>
+          <button type="button" class="color-swatch" data-color="#F26B6B" style="background:#F26B6B"></button>
+          <button type="button" class="color-swatch" data-color="#8B90AC" style="background:#8B90AC"></button>
+        </div>
+      </label>
+      <div class="field">
+        <span>Etapas do projeto</span>
+        <div class="phase-editor" id="phaseEditor"></div>
+        <button type="button" class="link-btn" id="addPhaseBtn">+ adicionar etapa</button>
+      </div>
+      <label class="check-row" id="projSampleTasksRow">
+        <input type="checkbox" id="projSampleTasks" checked>
+        <span>Incluir as tarefas sugeridas do modelo (você edita ou apaga depois)</span>
+      </label>
+      <label class="check-row" id="projSubjectRow">
+        <input type="checkbox" id="projCreateSubject" checked>
+        <span>Criar uma matéria no Pomodoro para registrar o tempo de foco deste projeto</span>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block" id="projectSubmitBtn">Criar projeto</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: TAREFA DE PROJETO -->
+<div class="modal-backdrop" id="projTaskModal" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <div>
+        <h3 id="projTaskModalTitle">Nova tarefa</h3>
+        <span class="modal-sub" id="projTaskProjectLabel"></span>
+      </div>
+      <button class="modal-close" id="closeProjTaskModal" type="button">&times;</button>
+    </div>
+    <form id="projTaskForm">
+      <label class="field">
+        <span>Título</span>
+        <input type="text" id="projTaskTitle" required maxlength="140" placeholder="O que precisa ser feito?">
+      </label>
+      <label class="field">
+        <span>Anotações</span>
+        <textarea id="projTaskNotes" rows="3" placeholder="Detalhes, links, referências…"></textarea>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Status</span>
+          <select id="projTaskStatus">
+            <option value="todo">A fazer</option>
+            <option value="doing">Em andamento</option>
+            <option value="done">Concluído</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Prioridade</span>
+          <select id="projTaskPriority">
+            <option value="high">Alta</option>
+            <option value="medium" selected>Média</option>
+            <option value="low">Baixa</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>Prazo</span>
+          <input type="date" id="projTaskDue">
+        </label>
+        <label class="field">
+          <span>Etapa</span>
+          <select id="projTaskPhase"></select>
+        </label>
+      </div>
+      <div class="field">
+        <span>Subtarefas</span>
+        <div class="subtask-list" id="subtaskList"></div>
+        <div class="subtask-add">
+          <input type="text" id="subtaskInput" placeholder="Adicionar subtarefa e Enter" autocomplete="off">
+          <button type="button" class="btn btn-ghost btn-sm" id="subtaskAddBtn">+</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-danger-ghost" id="projTaskDeleteBtn" hidden>Excluir</button>
+        <button type="submit" class="btn btn-primary">Salvar tarefa</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: VÁRIAS TAREFAS -->
+<div class="modal-backdrop" id="projBulkModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Adicionar várias tarefas</h3>
+      <button class="modal-close" id="closeProjBulkModal" type="button">&times;</button>
+    </div>
+    <form id="projBulkForm">
+      <label class="field">
+        <span>Uma tarefa por linha</span>
+        <textarea id="projBulkText" rows="8" required placeholder="Escrever introdução&#10;Revisar capítulo 2&#10;Montar tabela de resultados"></textarea>
+      </label>
+      <label class="field">
+        <span>Etapa</span>
+        <select id="projBulkPhase"></select>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">Adicionar tarefas</button>
+    </form>
+  </div>
+</div>
+
 <!-- MODAL: DIA DO CALENDÁRIO -->
 <div class="modal-backdrop" id="dayModal" hidden>
   <div class="modal">
@@ -412,6 +610,7 @@
     </div>
     <div id="dayModalStudy" class="day-modal-study"></div>
     <div id="dayModalTasks" class="day-modal-tasks-wrap"></div>
+    <div id="dayModalProjectTasks" class="day-modal-tasks-wrap"></div>
     <div id="dayModalList" class="day-modal-list"></div>
   </div>
 </div>
@@ -439,6 +638,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

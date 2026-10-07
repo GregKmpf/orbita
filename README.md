@@ -86,6 +86,12 @@ service cloud.firestore {
     match /users/{userId}/tasks/{taskId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /users/{userId}/projects/{projectId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/projectTasks/{taskId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 ```
@@ -94,7 +100,7 @@ Isso garante que **cada usuário só consegue ler e escrever os próprios dados*
 (metas, publicações, matérias, sessões de estudo e atividades). Clique em **Publish**.
 
 > Sempre que adicionar uma funcionalidade nova que crie uma coleção (como
-> aconteceu aqui com `subjects`, `pomodoroSessions` e `tasks`), volte em
+> aconteceu aqui com `subjects`, `pomodoroSessions`, `tasks`, `projects` e `projectTasks`), volte em
 > **Firestore Database > Rules** e cole a versão atualizada, senão a nova
 > funcionalidade falha com erro de permissão.
 
@@ -168,6 +174,10 @@ conteúdo, tags e data de criação.
 `users/{seu-uid}/subjects/{id-da-matéria}` — cada matéria de estudo guarda nome e cor.
 `users/{seu-uid}/pomodoroSessions/{id-da-sessão}` — cada sessão guarda a matéria,
 os minutos estudados e a data.
+`users/{seu-uid}/projects/{id-do-projeto}` — nome, cor, prazo, status, etapas e a
+matéria do Pomodoro vinculada.
+`users/{seu-uid}/projectTasks/{id-da-tarefa}` — tarefas de projetos (ligadas ao projeto
+por `projectId`): status, prioridade, prazo, etapa e subtarefas.
 
 ---
 
@@ -197,3 +207,40 @@ Na aba **Pomodoro**, você registra o tempo estudado por matéria:
    mostra a divisão do dia; e **"Histórico"** lista todas as sessões agrupadas por
    dia, com opção de excluir um registro individual (útil se você errou a matéria
    ou quer limpar um teste).
+
+---
+
+## 8. Projetos
+
+A aba **Projetos** (ao lado do Pomodoro) serve para trabalhos grandes — TCC, websites,
+apps — que não cabem numa meta diária. Dá para manter **vários projetos ao mesmo tempo**.
+
+**Visão geral**
+- Painel com projetos ativos, tarefas em aberto, atrasadas e tempo de foco total.
+- Cards por projeto com progresso (%), prazo, tarefas atrasadas e a próxima tarefa.
+- Filtro por status (Ativos / Pausados / Concluídos / Todos).
+- **Próximos prazos — todos os projetos**: agenda única com as tarefas que vencem
+  primeiro, de qualquer projeto.
+
+**Criando um projeto**
+- Escolha um **modelo** (TCC / Monografia, Website, App / Software ou Em branco). O
+  modelo já traz as **etapas** e, se você quiser, **tarefas sugeridas**. As etapas
+  podem ser renomeadas, reordenadas, removidas ou acrescentadas.
+- Defina cor e prazo final. Por padrão é criada uma **matéria no Pomodoro** com o nome
+  do projeto, para o tempo de foco ser somado ao projeto.
+
+**Dentro do projeto**
+- **Quadro** (A fazer / Em andamento / Concluído) com arrastar e soltar, ou setas ‹ › nos
+  cards (útil no celular). **Lista** agrupada por etapa, com progresso de cada uma.
+- Filtro por etapa e opção de ocultar concluídas.
+- Tarefas com título, anotações, prioridade, prazo, etapa e **subtarefas**.
+- Adição rápida (digite e Enter), tarefa detalhada ou **várias de uma vez** (cole uma
+  lista, uma por linha).
+- Indicadores: progresso, atrasadas, dias até o prazo, **ritmo necessário**
+  (tarefas por semana para terminar no prazo) e tempo focado.
+- **⏱ Focar neste projeto** abre o Pomodoro já com a matéria do projeto selecionada.
+- Pausar, retomar, concluir, editar e excluir projeto (excluir apaga as tarefas dele;
+  o tempo registrado no Pomodoro continua no histórico).
+
+**Calendário**: tarefas de projetos ativos com prazo aparecem com a bandeira 🚩 no dia
+e na lista "Tarefas de projetos" ao clicar no dia.
