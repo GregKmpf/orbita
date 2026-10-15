@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -67,6 +67,7 @@
       <button class="tab-btn" data-view="coruja">Coruja</button>
       <button class="tab-btn" data-view="pomodoro">Pomodoro</button>
       <button class="tab-btn" data-view="kanban">Kanban</button>
+      <button class="tab-btn" data-view="notas">Notas</button>
       <button class="tab-btn" data-view="projetos">Projetos</button>
     </nav>
     <div class="topbar-actions">
@@ -331,6 +332,32 @@
         </div>
         <div class="kb-board" id="kbBoard"></div>
       </div>
+
+    </section>
+
+    <!-- VIEW: NOTAS (post-its em linhas, estilo Obsidian) -->
+    <section id="view-notas" class="view">
+
+      <div class="nt-top">
+        <div class="nt-top-title">
+          <h2>Notas</h2>
+          <p id="ntMeta"></p>
+        </div>
+        <div class="nt-top-tools">
+          <input type="search" id="ntSearch" placeholder="Buscar notas ou #tag…" autocomplete="off" aria-label="Buscar notas">
+          <button class="btn btn-primary btn-sm" id="ntNewRowBtn">+ Nova linha</button>
+        </div>
+      </div>
+
+      <div class="nt-tags" id="ntTags" hidden></div>
+
+      <div class="kb-empty" id="ntEmpty" hidden>
+        <h3>Nenhuma linha de notas ainda</h3>
+        <p>Crie linhas para organizar seus post-its por assunto: ideias, estudos, reuniões… Dentro dos post-its você pode usar <code>#tags</code>, <code>[[links]]</code> para outras notas, listas e <code>**negrito**</code>, como no Obsidian.</p>
+        <button class="btn btn-primary" id="ntEmptyCreateBtn">Criar minha primeira linha</button>
+      </div>
+
+      <div class="nt-rows" id="ntRows"></div>
 
     </section>
 
@@ -741,6 +768,67 @@
   </div>
 </div>
 
+<!-- MODAL: LINHA DE NOTAS -->
+<div class="modal-backdrop" id="ntRowModal" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h3 id="ntRowModalTitle">Nova linha</h3>
+      <button class="modal-close" data-close="ntRowModal">&times;</button>
+    </div>
+    <form id="ntRowForm">
+      <label class="field">
+        <span>Título da linha</span>
+        <input type="text" id="ntRowNameInput" required maxlength="60" placeholder="Ex.: Ideias, Estudos, Reunião">
+      </label>
+      <div class="kb-col-order" id="ntRowOrderRow" hidden>
+        <button type="button" class="btn btn-ghost btn-sm" id="ntRowUpBtn">&#8593; Subir</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ntRowDownBtn">Descer &#8595;</button>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="ntRowSubmitBtn">Criar linha</button>
+      <button type="button" class="btn btn-danger btn-block kb-modal-danger" id="ntRowDeleteBtn" hidden>Excluir linha</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: NOTA (POST-IT) -->
+<div class="modal-backdrop" id="ntNoteModal" hidden>
+  <div class="modal modal-lg nt-modal">
+    <div class="modal-head">
+      <h3 id="ntNoteModalTitle">Novo post-it</h3>
+      <button class="modal-close" data-close="ntNoteModal">&times;</button>
+    </div>
+    <form id="ntNoteForm">
+      <label class="field">
+        <span>Título</span>
+        <input type="text" id="ntNoteTitleInput" required maxlength="120" placeholder="Título do post-it">
+      </label>
+      <div class="nt-editor-head">
+        <span class="nt-editor-label">Conteúdo</span>
+        <div class="nt-seg" role="tablist">
+          <button type="button" class="active" data-mode="edit">Editar</button>
+          <button type="button" data-mode="preview">Visualizar</button>
+        </div>
+      </div>
+      <textarea id="ntNoteBodyInput" class="nt-body-input" rows="10" maxlength="6000" spellcheck="true"
+        placeholder="Escreva livremente… Use #tag, [[outra nota]], - listas, - [ ] tarefas, **negrito**, ==destaque==, `código`"></textarea>
+      <div class="nt-preview" id="ntNotePreview" hidden></div>
+      <div class="nt-backlinks" id="ntBacklinks" hidden></div>
+      <div class="kb-row2">
+        <label class="field">
+          <span>Linha</span>
+          <select id="ntNoteRowSelect"></select>
+        </label>
+        <div class="field">
+          <span>Cor do post-it</span>
+          <div class="color-picker" id="ntNoteColorPicker"></div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="ntNoteSubmitBtn">Criar post-it</button>
+      <button type="button" class="btn btn-danger btn-block kb-modal-danger" id="ntNoteDeleteBtn" hidden>Excluir post-it</button>
+    </form>
+  </div>
+</div>
+
 <!-- MODAL: CONFIRMAR EXCLUSÃO -->
 <div class="modal-backdrop" id="confirmModal" hidden>
   <div class="modal modal-sm">
@@ -764,6 +852,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

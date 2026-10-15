@@ -13,7 +13,7 @@ let calendarCursor = (() => {
 })();
 let selectedColor = "#F2B84B";
 let pendingDeleteId = null;
-let pendingDeleteType = null;   // 'goal' | 'post' | 'subject' | 'session' | 'project' | 'ptask' | 'kboard' | 'kcolumn' | 'kcard'
+let pendingDeleteType = null;   // 'goal' | 'post' | 'subject' | 'session' | 'project' | 'ptask' | 'kboard' | 'kcolumn' | 'kcard' | 'ntrow' | 'ntnote'
 
 let posts = [];                 // array de {id, title, content, tags:[], createdAt}
 let postsUnsub = null;
@@ -272,6 +272,7 @@ auth.onAuthStateChanged((user) => {
     subscribeProjects(user.uid);
     subscribeProjectTasks(user.uid);
     subscribeKanban(user.uid);
+    subscribeNotes(user.uid);
   } else {
     appEl.classList.add("hidden");
     authScreen.classList.remove("hidden");
@@ -284,6 +285,8 @@ auth.onAuthStateChanged((user) => {
     if (projectTasksUnsub) { projectTasksUnsub(); projectTasksUnsub = null; }
     if (kbBoardsUnsub) { kbBoardsUnsub(); kbBoardsUnsub = null; }
     if (kbCardsUnsub) { kbCardsUnsub(); kbCardsUnsub = null; }
+    if (ntRowsUnsub) { ntRowsUnsub(); ntRowsUnsub = null; }
+    if (ntNotesUnsub) { ntNotesUnsub(); ntNotesUnsub = null; }
     goals = [];
     posts = [];
     subjects = [];
@@ -295,6 +298,11 @@ auth.onAuthStateChanged((user) => {
     kbCards = [];
     kbLoaded = false;
     kbAddingCol = null;
+    ntRows = [];
+    ntNotes = [];
+    ntLoaded = false;
+    ntSearch = "";
+    ntTagFilter = null;
     activeProjectId = null;
     selectedSubjectId = null;
     activeTagFilter = null;
@@ -605,6 +613,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
   if (view === "coruja") renderCoruja();
   if (view === "pomodoro") { renderSubjectChips(); renderPomodoroStats(); }
   if (view === "kanban") renderKanban();
+  if (view === "notas") renderNotes();
   if (view === "projetos") renderProjects();
 });
 
@@ -1234,6 +1243,8 @@ document.getElementById("confirmDeleteBtn").addEventListener("click", async () =
   if (pendingDeleteId && pendingDeleteType === "kboard") await deleteKbBoard(pendingDeleteId);
   if (pendingDeleteId && pendingDeleteType === "kcolumn") await deleteKbColumn(pendingDeleteId);
   if (pendingDeleteId && pendingDeleteType === "kcard") await deleteKbCard(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "ntrow") await deleteNtRow(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "ntnote") await deleteNtNote(pendingDeleteId);
   pendingDeleteId = null;
   pendingDeleteType = null;
   closeModal("confirmModal");
@@ -3276,6 +3287,556 @@ kbBoardEl.addEventListener("drop", (e) => {
   const columnId = col.dataset.col;
   kbClearDrag();
   kbMoveCard(id, columnId, prev ? prev.dataset.id : null, next ? next.dataset.id : null);
+});
+
+/* ---------------------------------------------------------
+   10c. Notas — post-its em linhas (estilo Obsidian)
+   Coleções: users/{uid}/noteRows (título, ordem)
+             users/{uid}/notes    (rowId, título, corpo, cor, ordem…)
+   O corpo aceita um markdown leve: #tags, [[links]] para outras
+   notas, listas, tarefas [ ], **negrito**, *itálico*, ==destaque==,
+   ~~riscado~~, `código`, títulos (#) e citações (>).
+--------------------------------------------------------- */
+const NT_COLORS = ["#F6E27A","#F4A9CB","#9CCBF5","#A9E5B3","#F7B67C","#CDB4F2"];
+const NT_GAP = 1024;
+
+let ntRows = [];                 // {id, name, order}
+let ntNotes = [];                // {id, rowId, title, body, color, order, updatedAt}
+let ntRowsUnsub = null;
+let ntNotesUnsub = null;
+let ntLoaded = false;
+let ntSearch = "";
+let ntTagFilter = null;
+let ntDraggedId = null;
+let ntNoteColor = NT_COLORS[0];
+let editingNtRowId = null;
+let editingNtNoteId = null;
+let ntNoteTargetRow = null;
+let ntMode = "edit";
+
+function ntRowsRef(uid){ return db.collection("users").doc(uid).collection("noteRows"); }
+function ntNotesRef(uid){ return db.collection("users").doc(uid).collection("notes"); }
+
+function ntError(prefix, err){
+  console.error(err);
+  if (err && err.code === "permission-denied"){
+    showToast("Sem permissão no Firestore: publique as regras novas do README (noteRows e notes).");
+  } else {
+    showToast(prefix + (err && err.message ? err.message : ""));
+  }
+}
+
+function subscribeNotes(uid){
+  if (ntRowsUnsub) ntRowsUnsub();
+  if (ntNotesUnsub) ntNotesUnsub();
+  ntLoaded = false;
+
+  ntRowsUnsub = ntRowsRef(uid).onSnapshot((snap) => {
+    ntRows = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        name: d.name || "Linha",
+        order: typeof d.order === "number" ? d.order : 0,
+        created: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
+      };
+    }).sort((a, b) => (a.order - b.order) || (a.created - b.created));
+    ntLoaded = true;
+    renderNotes();
+  }, (err) => ntError("Erro ao carregar linhas: ", err));
+
+  ntNotesUnsub = ntNotesRef(uid).onSnapshot((snap) => {
+    ntNotes = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        rowId: d.rowId,
+        title: d.title || "Sem título",
+        body: d.body || "",
+        color: NT_COLORS.includes(d.color) ? d.color : NT_COLORS[0],
+        order: typeof d.order === "number" ? d.order : 0,
+        updated: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0,
+      };
+    });
+    renderNotes();
+  }, (err) => ntError("Erro ao carregar notas: ", err));
+}
+
+function ntNotesOf(rowId){
+  return ntNotes.filter(n => n.rowId === rowId).sort((a, b) => a.order - b.order);
+}
+function ntFindByTitle(title){
+  const t = title.trim().toLowerCase();
+  return ntNotes.find(n => n.title.trim().toLowerCase() === t) || null;
+}
+function ntTagsOf(body){
+  const set = new Set();
+  const re = /(^|[\s(])#([\p{L}\p{N}_\-\/]+)/gu;
+  let m;
+  while ((m = re.exec(body))) set.add(m[2].toLowerCase());
+  return [...set];
+}
+function ntLinksOf(body){
+  const out = [];
+  const re = /\[\[([^\]\|\n]+)(?:\|[^\]\n]*)?\]\]/g;
+  let m;
+  while ((m = re.exec(body))) out.push(m[1].trim());
+  return out;
+}
+
+/* ---- markdown leve (escapa primeiro, depois aplica o estilo) ---- */
+function ntInline(raw){
+  let t = esc(raw);
+  t = t.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  t = t.replace(/\[\[([^\]\|\n]+)(?:\|([^\]\n]*))?\]\]/g, (_, target, alias) => {
+    const found = ntFindByTitle(target.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+    const label = alias && alias.trim() ? alias : target;
+    return `<a class="nt-link${found ? "" : " missing"}" data-link="${target.replace(/"/g, "&quot;")}" href="#" title="${found ? "Abrir nota" : "Nota ainda não existe — clique para criar"}">${label}</a>`;
+  });
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  t = t.replace(/==([^=\n]+)==/g, "<mark>$1</mark>");
+  t = t.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  t = t.replace(/(^|[\s(])#([\p{L}\p{N}_\-\/]+)/gu,
+    (_, pre, tag) => `${pre}<span class="nt-tag" data-tag="${tag.toLowerCase()}">#${tag}</span>`);
+  return t;
+}
+function ntRender(body, opts){
+  const interactive = !!(opts && opts.checks);
+  const lines = body.split("\n");
+  let html = "", inList = false, inCode = false, codeBuf = [];
+  const closeList = () => { if (inList){ html += "</ul>"; inList = false; } };
+  lines.forEach((line, i) => {
+    if (/^```/.test(line)){
+      if (inCode){ html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`; codeBuf = []; inCode = false; }
+      else { closeList(); inCode = true; }
+      return;
+    }
+    if (inCode){ codeBuf.push(line); return; }
+    let m;
+    if ((m = line.match(/^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/))){
+      if (!inList){ html += '<ul class="nt-list">'; inList = true; }
+      const done = m[1].toLowerCase() === "x";
+      html += `<li class="nt-task${done ? " done" : ""}"><input type="checkbox" ${done ? "checked " : ""}${interactive ? `data-ln="${i}"` : "disabled"} tabindex="-1"><span>${ntInline(m[2])}</span></li>`;
+      return;
+    }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))){
+      if (!inList){ html += '<ul class="nt-list">'; inList = true; }
+      html += `<li>${ntInline(m[1])}</li>`;
+      return;
+    }
+    closeList();
+    if ((m = line.match(/^(#{1,3})\s+(.*)$/))){ html += `<div class="nt-h nt-h${m[1].length}">${ntInline(m[2])}</div>`; return; }
+    if ((m = line.match(/^>\s?(.*)$/))){ html += `<blockquote>${ntInline(m[1])}</blockquote>`; return; }
+    if (!line.trim()){ html += '<div class="nt-gap"></div>'; return; }
+    html += `<p>${ntInline(line)}</p>`;
+  });
+  if (inCode) html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`;
+  closeList();
+  return html;
+}
+
+/* ---- gravações ---- */
+async function ntSaveRow(name, id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    if (id){
+      await ntRowsRef(user.uid).doc(id).update({ name });
+    } else {
+      const last = ntRows.slice(-1)[0];
+      await ntRowsRef(user.uid).add({
+        name, order: last ? last.order + NT_GAP : NT_GAP,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  } catch(err){ ntError("Erro ao salvar linha: ", err); }
+}
+async function ntShiftRow(id, dir){
+  const user = auth.currentUser;
+  const i = ntRows.findIndex(r => r.id === id);
+  const j = i + dir;
+  if (!user || i < 0 || j < 0 || j >= ntRows.length) return;
+  const list = ntRows.slice();
+  [list[i], list[j]] = [list[j], list[i]];
+  try{
+    await commitBatches(list.map((r, k) => (b => b.update(ntRowsRef(user.uid).doc(r.id), { order: (k + 1) * NT_GAP }))));
+  } catch(err){ ntError("Erro ao mover linha: ", err); }
+}
+async function deleteNtRow(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    const ops = ntNotes.filter(n => n.rowId === id).map(n => (b => b.delete(ntNotesRef(user.uid).doc(n.id))));
+    ops.push(b => b.delete(ntRowsRef(user.uid).doc(id)));
+    await commitBatches(ops);
+    showToast("Linha excluída.");
+  } catch(err){ ntError("Erro ao excluir linha: ", err); }
+}
+async function ntSaveNote(data, id){
+  const user = auth.currentUser;
+  if (!user) return null;
+  try{
+    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    if (id){
+      const old = ntNotes.find(n => n.id === id);
+      const patch = { title: data.title, body: data.body, color: data.color, rowId: data.rowId, updatedAt: ts };
+      if (old && old.rowId !== data.rowId){
+        const last = ntNotesOf(data.rowId).slice(-1)[0];
+        patch.order = last ? last.order + NT_GAP : NT_GAP;
+      }
+      await ntNotesRef(user.uid).doc(id).update(patch);
+      return id;
+    }
+    const last = ntNotesOf(data.rowId).slice(-1)[0];
+    const ref = await ntNotesRef(user.uid).add({
+      ...data, order: last ? last.order + NT_GAP : NT_GAP, createdAt: ts, updatedAt: ts,
+    });
+    return ref.id;
+  } catch(err){ ntError("Erro ao salvar nota: ", err); return null; }
+}
+async function deleteNtNote(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await ntNotesRef(user.uid).doc(id).delete();
+    showToast("Post-it excluído.");
+  } catch(err){ ntError("Erro ao excluir nota: ", err); }
+}
+async function ntMoveNote(id, rowId, prevId, nextId){
+  const user = auth.currentUser;
+  const note = ntNotes.find(n => n.id === id);
+  if (!user || !note) return;
+  const prev = prevId ? ntNotes.find(n => n.id === prevId) : null;
+  const next = nextId ? ntNotes.find(n => n.id === nextId) : null;
+  let order;
+  if (prev && next) order = (prev.order + next.order) / 2;
+  else if (prev) order = prev.order + NT_GAP;
+  else if (next) order = next.order - NT_GAP;
+  else order = NT_GAP;
+  try{
+    if (prev && next && Math.abs(next.order - prev.order) < 0.001){
+      const list = ntNotesOf(rowId).filter(n => n.id !== id);
+      const at = next ? list.findIndex(n => n.id === next.id) : list.length;
+      list.splice(at, 0, note);
+      await commitBatches(list.map((n, i) => (b => b.update(ntNotesRef(user.uid).doc(n.id), { rowId, order: (i + 1) * NT_GAP }))));
+      return;
+    }
+    await ntNotesRef(user.uid).doc(id).update({ rowId, order });
+  } catch(err){ ntError("Erro ao mover nota: ", err); }
+}
+async function ntToggleCheck(noteId, ln){
+  const user = auth.currentUser;
+  const note = ntNotes.find(n => n.id === noteId);
+  if (!user || !note) return;
+  const lines = note.body.split("\n");
+  if (!/\[( |x|X)\]/.test(lines[ln] || "")) return;
+  lines[ln] = lines[ln].replace(/\[( |x|X)\]/, (_, c) => c === " " ? "[x]" : "[ ]");
+  try{
+    await ntNotesRef(user.uid).doc(noteId).update({ body: lines.join("\n"), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  } catch(err){ ntError("Erro ao atualizar tarefa: ", err); }
+}
+
+/* ---- render ---- */
+function ntMatches(n){
+  const q = ntSearch.trim().toLowerCase();
+  if (ntTagFilter && !ntTagsOf(n.body).includes(ntTagFilter)) return false;
+  if (!q) return true;
+  if (q.startsWith("#") && q.length > 1) return ntTagsOf(n.body).some(t => t.includes(q.slice(1)));
+  return (n.title + " " + n.body).toLowerCase().includes(q);
+}
+function ntNoteHtml(n){
+  const links = ntLinksOf(n.body).length;
+  const tags = ntTagsOf(n.body);
+  const back = ntNotes.filter(o => o.id !== n.id && ntLinksOf(o.body).some(l => l.toLowerCase() === n.title.trim().toLowerCase())).length;
+  const foot = [];
+  if (links) foot.push(`<span title="Links para outras notas">🔗 ${links}</span>`);
+  if (back) foot.push(`<span title="Notas que apontam para esta">↩ ${back}</span>`);
+  return `
+    <article class="nt-note" draggable="true" data-id="${esc(n.id)}" style="--nt-color:${n.color}">
+      <h4 class="nt-note-title">${esc(n.title)}</h4>
+      <div class="nt-note-body">${ntRender(n.body, { checks: true })}</div>
+      ${(tags.length || foot.length) ? `<div class="nt-note-foot">${tags.slice(0, 4).map(t => `<span class="nt-chip" data-tag="${esc(t)}">#${esc(t)}</span>`).join("")}${foot.length ? `<span class="nt-foot-meta">${foot.join("")}</span>` : ""}</div>` : ""}
+    </article>`;
+}
+function renderNotes(){
+  const rowsEl = byId("ntRows");
+  if (!rowsEl) return;
+  byId("ntEmpty").hidden = !(ntLoaded && !ntRows.length);
+
+  // tags
+  const counts = {};
+  ntNotes.forEach(n => ntTagsOf(n.body).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+  const tagList = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
+  if (ntTagFilter && !counts[ntTagFilter]) ntTagFilter = null;
+  const tagsEl = byId("ntTags");
+  tagsEl.hidden = !tagList.length;
+  tagsEl.innerHTML = tagList.map(t =>
+    `<button type="button" class="nt-tag-btn${ntTagFilter === t ? " active" : ""}" data-tag="${esc(t)}">#${esc(t)}<small>${counts[t]}</small></button>`).join("");
+
+  byId("ntMeta").textContent = ntRows.length
+    ? `${ntNotes.length} ${plural(ntNotes.length, "post-it", "post-its")} em ${ntRows.length} ${plural(ntRows.length, "linha", "linhas")}`
+    : "";
+
+  const filtering = !!(ntSearch.trim() || ntTagFilter);
+  rowsEl.innerHTML = ntRows.map(row => {
+    const all = ntNotesOf(row.id);
+    const shown = all.filter(ntMatches);
+    if (filtering && !shown.length) return "";
+    return `
+      <section class="nt-row" data-row="${esc(row.id)}">
+        <div class="nt-row-head">
+          <h3>${esc(row.name)}</h3>
+          <span class="kb-count">${all.length}</span>
+          <button type="button" class="kb-col-menu" data-act="row-edit" title="Editar linha" aria-label="Editar linha">&#8943;</button>
+        </div>
+        <div class="nt-row-body" data-row="${esc(row.id)}">
+          ${shown.map(ntNoteHtml).join("")}
+          <button type="button" class="nt-add" data-act="note-add" title="Novo post-it" aria-label="Novo post-it nesta linha"><span>+</span>Post-it</button>
+        </div>
+      </section>`;
+  }).join("");
+  if (filtering && !rowsEl.innerHTML.trim() && ntRows.length){
+    rowsEl.innerHTML = `<div class="kb-col-empty nt-none">Nenhuma nota encontrada.</div>`;
+  }
+}
+
+/* ---- modal: linha ---- */
+function openNtRowModal(rowId){
+  editingNtRowId = rowId;
+  const r = rowId ? ntRows.find(x => x.id === rowId) : null;
+  byId("ntRowForm").reset();
+  byId("ntRowModalTitle").textContent = r ? "Editar linha" : "Nova linha";
+  byId("ntRowSubmitBtn").textContent = r ? "Salvar alterações" : "Criar linha";
+  byId("ntRowOrderRow").hidden = !r || ntRows.length < 2;
+  byId("ntRowDeleteBtn").hidden = !r;
+  if (r) byId("ntRowNameInput").value = r.name;
+  openModal("ntRowModal");
+  byId("ntRowNameInput").focus();
+}
+byId("ntRowForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = byId("ntRowNameInput").value.trim();
+  if (!name) return;
+  const id = editingNtRowId;
+  closeModal("ntRowModal");
+  await ntSaveRow(name, id);
+});
+byId("ntRowUpBtn").addEventListener("click", () => { if (editingNtRowId) ntShiftRow(editingNtRowId, -1); closeModal("ntRowModal"); });
+byId("ntRowDownBtn").addEventListener("click", () => { if (editingNtRowId) ntShiftRow(editingNtRowId, 1); closeModal("ntRowModal"); });
+byId("ntRowDeleteBtn").addEventListener("click", () => {
+  const id = editingNtRowId;
+  if (!id) return;
+  const n = ntNotesOf(id).length;
+  pendingDeleteId = id; pendingDeleteType = "ntrow";
+  byId("confirmModalTitle").textContent = "Excluir linha?";
+  byId("confirmModalText").textContent = n
+    ? `Apaga a linha e os ${n} ${plural(n, "post-it", "post-its")} dentro dela. Para guardá-los, mova antes para outra linha. Não pode ser desfeito.`
+    : "Apaga a linha. Não pode ser desfeito.";
+  closeModal("ntRowModal");
+  openModal("confirmModal");
+});
+
+/* ---- modal: nota ---- */
+function renderNtSwatches(){
+  byId("ntNoteColorPicker").innerHTML = NT_COLORS.map(c =>
+    `<button type="button" class="color-swatch${ntNoteColor === c ? " selected" : ""}" data-color="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`).join("");
+}
+byId("ntNoteColorPicker").addEventListener("click", (e) => {
+  const sw = e.target.closest(".color-swatch");
+  if (!sw) return;
+  ntNoteColor = sw.dataset.color;
+  renderNtSwatches();
+});
+function ntSetMode(mode){
+  ntMode = mode;
+  document.querySelectorAll(".nt-seg button").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+  byId("ntNoteBodyInput").hidden = mode !== "edit";
+  const prev = byId("ntNotePreview");
+  prev.hidden = mode !== "preview";
+  if (mode === "preview"){
+    const body = byId("ntNoteBodyInput").value;
+    prev.innerHTML = body.trim() ? ntRender(body) : `<p class="nt-empty-prev">Nada para mostrar ainda.</p>`;
+  }
+}
+document.querySelector(".nt-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-mode]");
+  if (b) ntSetMode(b.dataset.mode);
+});
+function ntRenderBacklinks(noteId, title){
+  const el = byId("ntBacklinks");
+  if (!noteId){ el.hidden = true; return; }
+  const t = title.trim().toLowerCase();
+  const refs = ntNotes.filter(o => o.id !== noteId && ntLinksOf(o.body).some(l => l.toLowerCase() === t));
+  el.hidden = !refs.length;
+  el.innerHTML = refs.length
+    ? `<span>Mencionada em</span>` + refs.map(r => `<a class="nt-link" href="#" data-open="${esc(r.id)}">${esc(r.title)}</a>`).join("")
+    : "";
+}
+function openNtNoteModal(noteId, rowId, presetTitle){
+  if (!ntRows.length) return openNtRowModal(null);
+  editingNtNoteId = noteId;
+  const n = noteId ? ntNotes.find(x => x.id === noteId) : null;
+  byId("ntNoteForm").reset();
+  byId("ntNoteModalTitle").textContent = n ? "Editar post-it" : "Novo post-it";
+  byId("ntNoteSubmitBtn").textContent = n ? "Salvar alterações" : "Criar post-it";
+  byId("ntNoteDeleteBtn").hidden = !n;
+  byId("ntNoteRowSelect").innerHTML = ntRows.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
+  if (n){
+    byId("ntNoteTitleInput").value = n.title;
+    byId("ntNoteBodyInput").value = n.body;
+    byId("ntNoteRowSelect").value = n.rowId;
+    ntNoteColor = n.color;
+  } else {
+    byId("ntNoteTitleInput").value = presetTitle || "";
+    byId("ntNoteRowSelect").value = rowId || ntRows[0].id;
+    const used = ntNotes.length;
+    ntNoteColor = NT_COLORS[used % NT_COLORS.length];
+  }
+  renderNtSwatches();
+  ntRenderBacklinks(noteId, n ? n.title : "");
+  ntSetMode(n && n.body ? "preview" : "edit");
+  openModal("ntNoteModal");
+  (n && n.body ? byId("ntNoteTitleInput") : (presetTitle ? byId("ntNoteBodyInput") : byId("ntNoteTitleInput"))).focus();
+}
+function ntReadNoteForm(){
+  return {
+    title: byId("ntNoteTitleInput").value.trim(),
+    body: byId("ntNoteBodyInput").value.replace(/\s+$/, ""),
+    rowId: byId("ntNoteRowSelect").value,
+    color: ntNoteColor,
+  };
+}
+byId("ntNoteForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const data = ntReadNoteForm();
+  if (!data.title) return;
+  const id = editingNtNoteId;
+  closeModal("ntNoteModal");
+  await ntSaveNote(data, id);
+});
+// Ctrl/Cmd + Enter salva
+byId("ntNoteModal").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+    e.preventDefault();
+    byId("ntNoteForm").requestSubmit();
+  }
+});
+byId("ntNoteDeleteBtn").addEventListener("click", () => {
+  const id = editingNtNoteId;
+  if (!id) return;
+  pendingDeleteId = id; pendingDeleteType = "ntnote";
+  byId("confirmModalTitle").textContent = "Excluir post-it?";
+  byId("confirmModalText").textContent = "Essa ação apaga o post-it permanentemente. Não pode ser desfeita.";
+  closeModal("ntNoteModal");
+  openModal("confirmModal");
+});
+
+// seguir [[link]]: abre a nota (ou cria, se ainda não existe)
+async function ntFollowLink(title, fromRowId){
+  const found = ntFindByTitle(title);
+  if (found) return openNtNoteModal(found.id);
+  openNtNoteModal(null, fromRowId, title.trim());
+}
+// links dentro do modal (pré-visualização e "mencionada em")
+byId("ntNoteModal").addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-open]");
+  const link = e.target.closest("a[data-link]");
+  if (!open && !link) return;
+  e.preventDefault();
+  const data = ntReadNoteForm();
+  const id = editingNtNoteId;
+  if (data.title && (id || data.body)) await ntSaveNote(data, id);   // não perde o que foi escrito
+  if (open) return openNtNoteModal(open.dataset.open);
+  ntFollowLink(link.dataset.link.replace(/&amp;/g, "&"), data.rowId);
+});
+
+/* ---- eventos da tela ---- */
+byId("ntNewRowBtn").addEventListener("click", () => openNtRowModal(null));
+byId("ntEmptyCreateBtn").addEventListener("click", () => openNtRowModal(null));
+byId("ntSearch").addEventListener("input", (e) => { ntSearch = e.target.value; renderNotes(); });
+byId("ntTags").addEventListener("click", (e) => {
+  const b = e.target.closest(".nt-tag-btn");
+  if (!b) return;
+  ntTagFilter = ntTagFilter === b.dataset.tag ? null : b.dataset.tag;
+  renderNotes();
+});
+
+const ntRowsEl = byId("ntRows");
+ntRowsEl.addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]");
+  if (act && act.dataset.act === "row-edit") return openNtRowModal(e.target.closest(".nt-row").dataset.row);
+  if (act && act.dataset.act === "note-add") return openNtNoteModal(null, e.target.closest(".nt-row").dataset.row);
+  const check = e.target.closest('input[type="checkbox"][data-ln]');
+  if (check){
+    e.preventDefault();
+    return ntToggleCheck(e.target.closest(".nt-note").dataset.id, Number(check.dataset.ln));
+  }
+  const link = e.target.closest("a[data-link]");
+  if (link){
+    e.preventDefault();
+    return ntFollowLink(link.dataset.link.replace(/&amp;/g, "&"), e.target.closest(".nt-row").dataset.row);
+  }
+  const tag = e.target.closest("[data-tag]");
+  if (tag){
+    ntTagFilter = tag.dataset.tag;
+    return renderNotes();
+  }
+  const note = e.target.closest(".nt-note");
+  if (note) openNtNoteModal(note.dataset.id);
+});
+
+/* ---- arrastar e soltar (entre linhas e dentro da linha) ---- */
+const ntPlaceholder = document.createElement("div");
+ntPlaceholder.className = "nt-drop-line";
+function ntClearDrag(){
+  ntDraggedId = null;
+  ntPlaceholder.remove();
+  ntRowsEl.querySelectorAll(".nt-note.dragging").forEach(el => el.classList.remove("dragging"));
+  ntRowsEl.querySelectorAll(".nt-row.drag-over").forEach(el => el.classList.remove("drag-over"));
+}
+ntRowsEl.addEventListener("dragstart", (e) => {
+  const note = e.target.closest(".nt-note");
+  if (!note) return;
+  ntDraggedId = note.dataset.id;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", ntDraggedId);
+  setTimeout(() => note.classList.add("dragging"), 0);
+});
+ntRowsEl.addEventListener("dragend", ntClearDrag);
+ntRowsEl.addEventListener("dragover", (e) => {
+  if (!ntDraggedId) return;
+  const row = e.target.closest(".nt-row");
+  if (!row) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  ntRowsEl.querySelectorAll(".nt-row.drag-over").forEach(el => { if (el !== row) el.classList.remove("drag-over"); });
+  row.classList.add("drag-over");
+  const body = row.querySelector(".nt-row-body");
+  const notes = [...body.querySelectorAll(".nt-note:not(.dragging)")];
+  const before = notes.find(n => {
+    const r = n.getBoundingClientRect();
+    return e.clientX < r.left + r.width / 2;
+  });
+  if (before) body.insertBefore(ntPlaceholder, before);
+  else body.insertBefore(ntPlaceholder, body.querySelector(".nt-add"));
+});
+ntRowsEl.addEventListener("drop", (e) => {
+  if (!ntDraggedId) return;
+  const row = e.target.closest(".nt-row");
+  if (!row || !ntPlaceholder.parentElement) return ntClearDrag();
+  e.preventDefault();
+  const id = ntDraggedId;
+  const sibling = (el, dir) => {
+    let n = el[dir];
+    while (n && !(n.classList.contains("nt-note") && n.dataset.id !== id)) n = n[dir];
+    return n;
+  };
+  const prev = sibling(ntPlaceholder, "previousElementSibling");
+  const next = sibling(ntPlaceholder, "nextElementSibling");
+  const rowId = row.dataset.row;
+  ntClearDrag();
+  ntMoveNote(id, rowId, prev ? prev.dataset.id : null, next ? next.dataset.id : null);
 });
 
 /* ---------------------------------------------------------
