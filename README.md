@@ -92,6 +92,12 @@ service cloud.firestore {
     match /users/{userId}/projectTasks/{taskId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /users/{userId}/kanbanBoards/{boardId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/kanbanCards/{cardId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 ```
@@ -100,7 +106,7 @@ Isso garante que **cada usuário só consegue ler e escrever os próprios dados*
 (metas, publicações, matérias, sessões de estudo e atividades). Clique em **Publish**.
 
 > Sempre que adicionar uma funcionalidade nova que crie uma coleção (como
-> aconteceu aqui com `subjects`, `pomodoroSessions`, `tasks`, `projects` e `projectTasks`), volte em
+> aconteceu aqui com `subjects`, `pomodoroSessions`, `tasks`, `projects`, `projectTasks`, `kanbanBoards` e `kanbanCards`), volte em
 > **Firestore Database > Rules** e cole a versão atualizada, senão a nova
 > funcionalidade falha com erro de permissão.
 
@@ -178,6 +184,10 @@ os minutos estudados e a data.
 matéria do Pomodoro vinculada.
 `users/{seu-uid}/projectTasks/{id-da-tarefa}` — tarefas de projetos (ligadas ao projeto
 por `projectId`): status, prioridade, prazo, etapa e subtarefas.
+`users/{seu-uid}/kanbanBoards/{id-do-quadro}` — nome, descrição, cor e a lista de
+colunas (`{id, name, done}`) de cada quadro Kanban.
+`users/{seu-uid}/kanbanCards/{id-do-card}` — cards (ligados ao quadro e à coluna por
+`boardId` e `columnId`): título, detalhes, etiqueta de cor, prazo e `order`.
 
 ---
 
@@ -244,3 +254,29 @@ apps — que não cabem numa meta diária. Dá para manter **vários projetos ao
 
 **Calendário**: tarefas de projetos ativos com prazo aparecem com a bandeira 🚩 no dia
 e na lista "Tarefas de projetos" ao clicar no dia.
+
+---
+
+## 8. Kanban
+
+A aba **Kanban** (ao lado de Pomodoro) permite criar **vários quadros independentes** —
+por exemplo um para a faculdade, outro para o trabalho e outro para um projeto pessoal.
+
+- **Quadros**: ficam como botões no topo; clique para alternar. O último quadro aberto é
+  lembrado neste navegador. Em **+ Novo quadro** você escolhe nome, cor e as colunas
+  iniciais (Clássico: *A fazer → Em andamento → Em revisão → Concluído*; Simples: 3
+  colunas; ou Em branco). Em **Editar quadro** dá para renomear, mudar a cor ou excluir.
+- **Colunas**: totalmente editáveis. Use **+ Nova coluna**, ou o botão **⋯** de uma coluna
+  para renomear, mover para a esquerda/direita ou excluir. Marque **Coluna de concluídos**
+  para que os cards ali contem como feitos (aparece no resumo do quadro e o prazo deixa
+  de ficar vermelho).
+- **Cards**: **+ Adicionar card** no pé da coluna cria rápido (Enter adiciona e mantém o
+  campo aberto, Esc fecha). Clique no card para editar título, detalhes, prazo, etiqueta
+  de cor e coluna.
+- **Mover cards**: arraste e solte entre colunas, na posição que quiser (uma linha
+  mostra onde o card vai cair). Em telas de toque, use os botões **‹ ›** do card ou o campo
+  "Coluna" ao editar.
+- **Busca**: o campo "Buscar cards…" filtra pelo título e pelos detalhes.
+
+> Depois de atualizar o site, lembre de colar as regras novas do passo 2.4 no Firebase
+> (`kanbanBoards` e `kanbanCards`), senão a aba mostra erro de permissão.

@@ -13,7 +13,7 @@ let calendarCursor = (() => {
 })();
 let selectedColor = "#F2B84B";
 let pendingDeleteId = null;
-let pendingDeleteType = null;   // 'goal' | 'post' | 'subject' | 'session' | 'project' | 'ptask'
+let pendingDeleteType = null;   // 'goal' | 'post' | 'subject' | 'session' | 'project' | 'ptask' | 'kboard' | 'kcolumn' | 'kcard'
 
 let posts = [];                 // array de {id, title, content, tags:[], createdAt}
 let postsUnsub = null;
@@ -49,6 +49,23 @@ let editingTaskId = null;
 let selectedProjectColor = "#4FA3E3";
 let draftPhases = [];           // etapas em edição no modal de projeto
 let draftSubtasks = [];         // subtarefas em edição no modal de tarefa
+
+let kbBoards = [];              // {id, name, description, color, columns:[{id,name,done}]}
+let kbCards = [];               // {id, boardId, columnId, title, notes, label, dueDate, order}
+let kbBoardsUnsub = null;
+let kbCardsUnsub = null;
+let kbLoaded = false;           // já recebeu os quadros do Firestore?
+let kbActiveId = (() => { try{ return localStorage.getItem("orbita.kanban.active") || null; } catch(e){ return null; } })();
+let kbSearch = "";
+let kbAddingCol = null;         // coluna com o campo "adicionar card" aberto
+let kbAddDraft = "";
+let kbRendering = false;
+let kbDraggedId = null;
+let kbBoardColor = "#4FA3E3";
+let kbCardLabel = null;
+let editingKbBoardId = null;
+let editingKbColumnId = null;
+let editingKbCardId = null;
 
 let pomoRunning = false;
 let pomoInterval = null;
@@ -254,6 +271,7 @@ auth.onAuthStateChanged((user) => {
     subscribeTasks(user.uid);
     subscribeProjects(user.uid);
     subscribeProjectTasks(user.uid);
+    subscribeKanban(user.uid);
   } else {
     appEl.classList.add("hidden");
     authScreen.classList.remove("hidden");
@@ -264,6 +282,8 @@ auth.onAuthStateChanged((user) => {
     if (tasksUnsub) { tasksUnsub(); tasksUnsub = null; }
     if (projectsUnsub) { projectsUnsub(); projectsUnsub = null; }
     if (projectTasksUnsub) { projectTasksUnsub(); projectTasksUnsub = null; }
+    if (kbBoardsUnsub) { kbBoardsUnsub(); kbBoardsUnsub = null; }
+    if (kbCardsUnsub) { kbCardsUnsub(); kbCardsUnsub = null; }
     goals = [];
     posts = [];
     subjects = [];
@@ -271,6 +291,10 @@ auth.onAuthStateChanged((user) => {
     tasks = [];
     projects = [];
     projectTasks = [];
+    kbBoards = [];
+    kbCards = [];
+    kbLoaded = false;
+    kbAddingCol = null;
     activeProjectId = null;
     selectedSubjectId = null;
     activeTagFilter = null;
@@ -580,6 +604,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
   if (view === "calendario") renderCalendar();
   if (view === "coruja") renderCoruja();
   if (view === "pomodoro") { renderSubjectChips(); renderPomodoroStats(); }
+  if (view === "kanban") renderKanban();
   if (view === "projetos") renderProjects();
 });
 
@@ -1206,6 +1231,9 @@ document.getElementById("confirmDeleteBtn").addEventListener("click", async () =
   if (pendingDeleteId && pendingDeleteType === "session") await deleteSession(pendingDeleteId);
   if (pendingDeleteId && pendingDeleteType === "project") await deleteProject(pendingDeleteId);
   if (pendingDeleteId && pendingDeleteType === "ptask") await deleteProjectTask(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "kboard") await deleteKbBoard(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "kcolumn") await deleteKbColumn(pendingDeleteId);
+  if (pendingDeleteId && pendingDeleteType === "kcard") await deleteKbCard(pendingDeleteId);
   pendingDeleteId = null;
   pendingDeleteType = null;
   closeModal("confirmModal");
@@ -2635,6 +2663,620 @@ function renderDayModalProjectTasks(dateStr){
       }).join("")}
     </div>`;
 }
+
+/* ---------------------------------------------------------
+   10b. Kanban — vários quadros
+   Coleções: users/{uid}/kanbanBoards  (nome, cor, colunas[])
+             users/{uid}/kanbanCards   (boardId, columnId, título, ordem…)
+   A posição de um card dentro da coluna é o campo numérico `order`.
+   Ao soltar um card entre dois outros, usamos a média das ordens
+   deles — assim só 1 documento é gravado por movimento.
+--------------------------------------------------------- */
+const KB_COLORS = ["#F2B84B","#4FA3E3","#C15FF2","#4CD9A0","#F26B6B","#8B90AC"];
+const KB_GAP = 1024;
+const KB_TEMPLATES = {
+  classic: { label: "Clássico — A fazer, Em andamento, Em revisão, Concluído",
+             columns: [["A fazer"], ["Em andamento"], ["Em revisão"], ["Concluído", true]] },
+  simple:  { label: "Simples — A fazer, Fazendo, Feito",
+             columns: [["A fazer"], ["Fazendo"], ["Feito", true]] },
+  blank:   { label: "Em branco — só uma coluna",
+             columns: [["A fazer"]] },
+};
+
+function kbBoardsRef(uid){ return db.collection("users").doc(uid).collection("kanbanBoards"); }
+function kbCardsRef(uid){ return db.collection("users").doc(uid).collection("kanbanCards"); }
+
+function kbError(prefix, err){
+  console.error(err);
+  if (err && err.code === "permission-denied"){
+    showToast("Sem permissão no Firestore: publique as regras novas do README (kanbanBoards e kanbanCards).");
+  } else {
+    showToast(prefix + (err && err.message ? err.message : ""));
+  }
+}
+
+function kbSaveActive(){
+  try{ localStorage.setItem("orbita.kanban.active", kbActiveId || ""); } catch(e){}
+}
+
+function subscribeKanban(uid){
+  if (kbBoardsUnsub) kbBoardsUnsub();
+  if (kbCardsUnsub) kbCardsUnsub();
+  kbLoaded = false;
+
+  kbBoardsUnsub = kbBoardsRef(uid).orderBy("createdAt", "asc").onSnapshot((snap) => {
+    kbBoards = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        name: d.name || "Quadro",
+        description: d.description || "",
+        color: KB_COLORS.includes(d.color) ? d.color : KB_COLORS[1],
+        columns: Array.isArray(d.columns)
+          ? d.columns.filter(c => c && c.id).map(c => ({ id: String(c.id), name: c.name || "Coluna", done: !!c.done }))
+          : [],
+      };
+    });
+    kbLoaded = true;
+    renderKanban();
+  }, (err) => kbError("Erro ao carregar quadros: ", err));
+
+  kbCardsUnsub = kbCardsRef(uid).onSnapshot((snap) => {
+    kbCards = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        boardId: d.boardId,
+        columnId: d.columnId,
+        title: d.title || "",
+        notes: d.notes || "",
+        label: KB_COLORS.includes(d.label) ? d.label : null,
+        dueDate: d.dueDate || null,
+        order: typeof d.order === "number" ? d.order : 0,
+      };
+    });
+    renderKanban();
+  }, (err) => kbError("Erro ao carregar cards: ", err));
+}
+
+function currentKbBoard(){
+  return kbBoards.find(b => b.id === kbActiveId) || kbBoards[0] || null;
+}
+function kbCardsOf(boardId, columnId){
+  return kbCards.filter(c => c.boardId === boardId && c.columnId === columnId)
+                .sort((a, b) => a.order - b.order);
+}
+
+/* ---- gravações: quadros ---- */
+async function createKbBoard(form){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    const ref = kbBoardsRef(user.uid).doc();
+    const tpl = KB_TEMPLATES[form.template] || KB_TEMPLATES.classic;
+    const columns = tpl.columns.map(([name, done]) => ({ id: uid8(), name, done: !!done }));
+    kbActiveId = ref.id;
+    kbSaveActive();
+    await ref.set({
+      name: form.name, description: form.description, color: form.color, columns,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast("Quadro criado.");
+  } catch(err){ kbError("Erro ao criar quadro: ", err); }
+}
+async function updateKbBoard(id, form){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await kbBoardsRef(user.uid).doc(id).update({ name: form.name, description: form.description, color: form.color });
+    showToast("Quadro atualizado.");
+  } catch(err){ kbError("Erro ao salvar quadro: ", err); }
+}
+async function deleteKbBoard(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    const ops = kbCards.filter(c => c.boardId === id).map(c => (b => b.delete(kbCardsRef(user.uid).doc(c.id))));
+    ops.push(b => b.delete(kbBoardsRef(user.uid).doc(id)));
+    await commitBatches(ops);
+    if (kbActiveId === id){ kbActiveId = null; kbSaveActive(); }
+    showToast("Quadro excluído.");
+  } catch(err){ kbError("Erro ao excluir quadro: ", err); }
+}
+
+/* ---- gravações: colunas ---- */
+async function kbSaveColumns(boardId, columns){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await kbBoardsRef(user.uid).doc(boardId).update({ columns });
+  } catch(err){ kbError("Erro ao salvar colunas: ", err); }
+}
+async function deleteKbColumn(columnId){
+  const user = auth.currentUser;
+  const board = currentKbBoard();
+  if (!user || !board) return;
+  try{
+    const ops = kbCardsOf(board.id, columnId).map(c => (b => b.delete(kbCardsRef(user.uid).doc(c.id))));
+    ops.push(b => b.update(kbBoardsRef(user.uid).doc(board.id), { columns: board.columns.filter(c => c.id !== columnId) }));
+    await commitBatches(ops);
+    showToast("Coluna excluída.");
+  } catch(err){ kbError("Erro ao excluir coluna: ", err); }
+}
+
+/* ---- gravações: cards ---- */
+async function kbAddCard(boardId, columnId, title){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    const last = kbCardsOf(boardId, columnId).slice(-1)[0];
+    await kbCardsRef(user.uid).add({
+      boardId, columnId, title, notes: "", label: null, dueDate: null,
+      order: last ? last.order + KB_GAP : KB_GAP,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch(err){ kbError("Erro ao criar card: ", err); }
+}
+async function kbSaveCard(data, id){
+  const user = auth.currentUser;
+  const board = currentKbBoard();
+  if (!user || !board) return;
+  try{
+    if (id){
+      const old = kbCards.find(c => c.id === id);
+      const patch = { title: data.title, notes: data.notes, label: data.label, dueDate: data.dueDate, columnId: data.columnId };
+      if (old && old.columnId !== data.columnId){
+        const last = kbCardsOf(board.id, data.columnId).slice(-1)[0];
+        patch.order = last ? last.order + KB_GAP : KB_GAP;
+      }
+      await kbCardsRef(user.uid).doc(id).update(patch);
+    } else {
+      const last = kbCardsOf(board.id, data.columnId).slice(-1)[0];
+      await kbCardsRef(user.uid).add({
+        boardId: board.id, ...data,
+        order: last ? last.order + KB_GAP : KB_GAP,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  } catch(err){ kbError("Erro ao salvar card: ", err); }
+}
+async function deleteKbCard(id){
+  const user = auth.currentUser;
+  if (!user) return;
+  try{
+    await kbCardsRef(user.uid).doc(id).delete();
+    showToast("Card excluído.");
+  } catch(err){ kbError("Erro ao excluir card: ", err); }
+}
+// Move o card para `columnId`, logo depois de `prevId` e antes de `nextId` (ambos opcionais).
+async function kbMoveCard(id, columnId, prevId, nextId){
+  const user = auth.currentUser;
+  const card = kbCards.find(c => c.id === id);
+  if (!user || !card) return;
+  const prev = prevId ? kbCards.find(c => c.id === prevId) : null;
+  const next = nextId ? kbCards.find(c => c.id === nextId) : null;
+  try{
+    if (prev && next && Math.abs(next.order - prev.order) < 0.001){
+      // ordens coladas demais: renumera a coluna inteira numa tacada só
+      const list = kbCardsOf(card.boardId, columnId).filter(c => c.id !== id);
+      const at = list.findIndex(c => c.id === prev.id) + 1;
+      list.splice(at, 0, card);
+      await commitBatches(list.map((c, i) => (b => b.update(kbCardsRef(user.uid).doc(c.id), { columnId, order: (i + 1) * KB_GAP }))));
+      return;
+    }
+    let order;
+    if (prev && next) order = (prev.order + next.order) / 2;
+    else if (prev)    order = prev.order + KB_GAP;
+    else if (next)    order = next.order - KB_GAP;
+    else              order = KB_GAP;
+    if (card.columnId === columnId && card.order === order) return;
+    await kbCardsRef(user.uid).doc(id).update({ columnId, order });
+  } catch(err){ kbError("Erro ao mover card: ", err); }
+}
+function kbMoveCardToNeighbor(id, dir){
+  const board = currentKbBoard();
+  const card = kbCards.find(c => c.id === id);
+  if (!board || !card) return;
+  const idx = board.columns.findIndex(c => c.id === card.columnId) + dir;
+  if (idx < 0 || idx >= board.columns.length) return;
+  const target = board.columns[idx].id;
+  const last = kbCardsOf(board.id, target).slice(-1)[0];
+  kbMoveCard(id, target, last ? last.id : null, null);
+}
+
+/* ---- render ---- */
+function kbCardHtml(col, colIndex, colCount, c){
+  const due = c.dueDate ? dueInfo(c.dueDate, col.done) : null;
+  const style = c.label ? ` style="--kb-label:${c.label}"` : "";
+  return `
+    <div class="kb-card${col.done ? " done" : ""}" draggable="true" data-id="${esc(c.id)}"${style}>
+      <div class="kb-card-title">${esc(c.title)}</div>
+      ${c.notes ? `<div class="kb-card-notes">${esc(c.notes)}</div>` : ""}
+      <div class="kb-card-foot">
+        ${due ? `<span class="kb-due ${due.cls}">${esc(due.label)}</span>` : ""}
+        <span class="kb-card-move">
+          ${colIndex > 0 ? `<button type="button" data-act="left" title="Mover para a coluna anterior" aria-label="Mover para a coluna anterior">&#8249;</button>` : ""}
+          ${colIndex < colCount - 1 ? `<button type="button" data-act="right" title="Mover para a próxima coluna" aria-label="Mover para a próxima coluna">&#8250;</button>` : ""}
+        </span>
+      </div>
+    </div>`;
+}
+function kbAddAreaHtml(colId){
+  if (kbAddingCol === colId){
+    return `<form class="kb-add-form" data-col="${esc(colId)}">
+      <input type="text" class="kb-add-input" maxlength="200" placeholder="Título e Enter…" autocomplete="off">
+    </form>`;
+  }
+  return `<button type="button" class="kb-add-btn" data-act="add-open" data-col="${esc(colId)}">+ Adicionar card</button>`;
+}
+
+function renderKbTabs(){
+  const wrap = byId("kbBoardTabs");
+  const active = currentKbBoard();
+  wrap.innerHTML = kbBoards.map(b => {
+    const n = kbCards.filter(c => c.boardId === b.id).length;
+    return `<button type="button" class="kb-board-chip${active && active.id === b.id ? " active" : ""}" data-id="${esc(b.id)}" style="--kb-color:${b.color}">
+      <span class="kb-dot"></span>${esc(b.name)}<span class="kb-chip-count">${n}</span>
+    </button>`;
+  }).join("");
+}
+
+function renderKanban(){
+  renderKbTabs();
+  const board = currentKbBoard();
+  byId("kbEmpty").hidden = !(kbLoaded && !board);
+  byId("kbBoardWrap").hidden = !board;
+  if (!board) return;
+
+  const wrap = byId("kbBoardWrap");
+  wrap.style.setProperty("--kb-color", board.color);
+  byId("kbBoardName").textContent = board.name;
+
+  const all = kbCards.filter(c => c.boardId === board.id);
+  const doneIds = new Set(board.columns.filter(c => c.done).map(c => c.id));
+  const doneCount = all.filter(c => doneIds.has(c.columnId)).length;
+  const parts = [`${all.length} ${plural(all.length, "card", "cards")}`];
+  if (doneIds.size) parts.push(`${doneCount} ${plural(doneCount, "concluído", "concluídos")}`);
+  if (board.description) parts.unshift(board.description);
+  byId("kbBoardMeta").textContent = parts.join(" · ");
+
+  const q = kbSearch.trim().toLowerCase();
+  const html = board.columns.map((col, i) => {
+    const list = kbCardsOf(board.id, col.id);
+    const shown = q ? list.filter(c => (c.title + " " + c.notes).toLowerCase().includes(q)) : list;
+    const body = shown.length
+      ? shown.map(c => kbCardHtml(col, i, board.columns.length, c)).join("")
+      : (q && list.length ? `<div class="kb-col-empty">Nenhum card encontrado.</div>` : "");
+    return `
+      <div class="kb-col${col.done ? " is-done" : ""}" data-col="${esc(col.id)}">
+        <div class="kb-col-head">
+          <h3>${esc(col.name)}</h3>
+          <span class="kb-count">${list.length}</span>
+          <button type="button" class="kb-col-menu" data-act="col-edit" title="Editar coluna" aria-label="Editar coluna">&#8943;</button>
+        </div>
+        <div class="kb-col-body" data-col="${esc(col.id)}">${body}</div>
+        ${kbAddAreaHtml(col.id)}
+      </div>`;
+  }).join("") + `<button type="button" class="kb-add-col" data-act="col-add">+ Nova coluna</button>`;
+  kbRendering = true;          // evita que o focusout do campo removido feche o "adicionar card"
+  byId("kbBoard").innerHTML = html;
+  kbRendering = false;
+
+  if (kbAddingCol){
+    const input = byId("kbBoard").querySelector(".kb-add-input");
+    if (input){ input.value = kbAddDraft; input.focus(); }
+    else kbAddingCol = null;
+  }
+}
+
+/* ---- seletores de cor ---- */
+function renderKbSwatches(containerId, selected, allowNone){
+  const el = byId(containerId);
+  el.innerHTML = (allowNone
+      ? `<button type="button" class="color-swatch kb-swatch-none${!selected ? " selected" : ""}" data-color="" title="Sem etiqueta" aria-label="Sem etiqueta"></button>`
+      : "")
+    + KB_COLORS.map(c =>
+      `<button type="button" class="color-swatch${selected === c ? " selected" : ""}" data-color="${c}" style="background:${c}" aria-label="Cor ${c}"></button>`
+    ).join("");
+}
+byId("kbBoardColorPicker").addEventListener("click", (e) => {
+  const sw = e.target.closest(".color-swatch");
+  if (!sw) return;
+  kbBoardColor = sw.dataset.color;
+  renderKbSwatches("kbBoardColorPicker", kbBoardColor, false);
+});
+byId("kbCardLabelPicker").addEventListener("click", (e) => {
+  const sw = e.target.closest(".color-swatch");
+  if (!sw) return;
+  kbCardLabel = sw.dataset.color || null;
+  renderKbSwatches("kbCardLabelPicker", kbCardLabel, true);
+});
+
+/* ---- modal: quadro ---- */
+byId("kbBoardTemplate").innerHTML = Object.entries(KB_TEMPLATES)
+  .map(([key, t]) => `<option value="${key}">${esc(t.label)}</option>`).join("");
+
+function openKbBoardModal(boardId){
+  editingKbBoardId = boardId;
+  const b = boardId ? kbBoards.find(x => x.id === boardId) : null;
+  byId("kbBoardForm").reset();
+  byId("kbBoardModalTitle").textContent = b ? "Editar quadro" : "Novo quadro";
+  byId("kbBoardSubmitBtn").textContent = b ? "Salvar alterações" : "Criar quadro";
+  byId("kbTemplateRow").hidden = !!b;
+  byId("kbBoardDeleteBtn").hidden = !b;
+  if (b){
+    byId("kbBoardNameInput").value = b.name;
+    byId("kbBoardDescInput").value = b.description;
+    kbBoardColor = b.color;
+  } else {
+    kbBoardColor = KB_COLORS[kbBoards.length % KB_COLORS.length];
+  }
+  renderKbSwatches("kbBoardColorPicker", kbBoardColor, false);
+  openModal("kbBoardModal");
+  byId("kbBoardNameInput").focus();
+}
+byId("kbBoardForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = {
+    name: byId("kbBoardNameInput").value.trim(),
+    description: byId("kbBoardDescInput").value.trim(),
+    color: kbBoardColor,
+    template: byId("kbBoardTemplate").value,
+  };
+  if (!form.name) return;
+  const id = editingKbBoardId;
+  closeModal("kbBoardModal");
+  if (id) await updateKbBoard(id, form);
+  else await createKbBoard(form);
+});
+byId("kbBoardDeleteBtn").addEventListener("click", () => {
+  const id = editingKbBoardId;
+  if (!id) return;
+  const n = kbCards.filter(c => c.boardId === id).length;
+  pendingDeleteId = id; pendingDeleteType = "kboard";
+  byId("confirmModalTitle").textContent = "Excluir quadro?";
+  byId("confirmModalText").textContent = `Apaga o quadro, as colunas e ${n} ${plural(n, "card", "cards")}. Não pode ser desfeito.`;
+  closeModal("kbBoardModal");
+  openModal("confirmModal");
+});
+
+/* ---- modal: coluna ---- */
+function openKbColumnModal(columnId){
+  const board = currentKbBoard();
+  if (!board) return;
+  editingKbColumnId = columnId;
+  const col = columnId ? board.columns.find(c => c.id === columnId) : null;
+  byId("kbColumnForm").reset();
+  byId("kbColumnModalTitle").textContent = col ? "Editar coluna" : "Nova coluna";
+  byId("kbColumnSubmitBtn").textContent = col ? "Salvar alterações" : "Criar coluna";
+  byId("kbColumnOrderRow").hidden = !col || board.columns.length < 2;
+  byId("kbColumnDeleteBtn").hidden = !col || board.columns.length < 2;
+  if (col){
+    byId("kbColumnNameInput").value = col.name;
+    byId("kbColumnDoneInput").checked = col.done;
+  }
+  openModal("kbColumnModal");
+  byId("kbColumnNameInput").focus();
+}
+byId("kbColumnForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const board = currentKbBoard();
+  const name = byId("kbColumnNameInput").value.trim();
+  if (!board || !name) return;
+  const done = byId("kbColumnDoneInput").checked;
+  const id = editingKbColumnId;
+  closeModal("kbColumnModal");
+  const columns = id
+    ? board.columns.map(c => c.id === id ? { ...c, name, done } : c)
+    : [...board.columns, { id: uid8(), name, done }];
+  await kbSaveColumns(board.id, columns);
+});
+function kbShiftColumn(dir){
+  const board = currentKbBoard();
+  if (!board || !editingKbColumnId) return;
+  const cols = board.columns.slice();
+  const i = cols.findIndex(c => c.id === editingKbColumnId);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= cols.length) return;
+  [cols[i], cols[j]] = [cols[j], cols[i]];
+  kbSaveColumns(board.id, cols);
+  closeModal("kbColumnModal");
+}
+byId("kbColLeftBtn").addEventListener("click", () => kbShiftColumn(-1));
+byId("kbColRightBtn").addEventListener("click", () => kbShiftColumn(1));
+byId("kbColumnDeleteBtn").addEventListener("click", () => {
+  const board = currentKbBoard();
+  const id = editingKbColumnId;
+  if (!board || !id) return;
+  const n = kbCardsOf(board.id, id).length;
+  pendingDeleteId = id; pendingDeleteType = "kcolumn";
+  byId("confirmModalTitle").textContent = "Excluir coluna?";
+  byId("confirmModalText").textContent = n
+    ? `Apaga a coluna e os ${n} ${plural(n, "card", "cards")} dentro dela. Para guardá-los, mova antes para outra coluna. Não pode ser desfeito.`
+    : "Apaga a coluna. Não pode ser desfeito.";
+  closeModal("kbColumnModal");
+  openModal("confirmModal");
+});
+
+/* ---- modal: card ---- */
+function openKbCardModal(cardId, columnId){
+  const board = currentKbBoard();
+  if (!board) return;
+  editingKbCardId = cardId;
+  const c = cardId ? kbCards.find(x => x.id === cardId) : null;
+  byId("kbCardForm").reset();
+  byId("kbCardModalTitle").textContent = c ? "Editar card" : "Novo card";
+  byId("kbCardSubmitBtn").textContent = c ? "Salvar alterações" : "Criar card";
+  byId("kbCardDeleteBtn").hidden = !c;
+  byId("kbCardColumnSelect").innerHTML = board.columns
+    .map(col => `<option value="${esc(col.id)}">${esc(col.name)}</option>`).join("");
+  if (c){
+    byId("kbCardTitleInput").value = c.title;
+    byId("kbCardNotesInput").value = c.notes;
+    byId("kbCardDueInput").value = c.dueDate || "";
+    byId("kbCardColumnSelect").value = c.columnId;
+    kbCardLabel = c.label;
+  } else {
+    byId("kbCardColumnSelect").value = columnId || board.columns[0].id;
+    kbCardLabel = null;
+  }
+  renderKbSwatches("kbCardLabelPicker", kbCardLabel, true);
+  openModal("kbCardModal");
+  byId("kbCardTitleInput").focus();
+}
+byId("kbCardForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title = byId("kbCardTitleInput").value.trim();
+  if (!title) return;
+  const data = {
+    title,
+    notes: byId("kbCardNotesInput").value.trim(),
+    dueDate: byId("kbCardDueInput").value || null,
+    columnId: byId("kbCardColumnSelect").value,
+    label: kbCardLabel,
+  };
+  const id = editingKbCardId;
+  closeModal("kbCardModal");
+  await kbSaveCard(data, id);
+});
+byId("kbCardDeleteBtn").addEventListener("click", () => {
+  const id = editingKbCardId;
+  if (!id) return;
+  pendingDeleteId = id; pendingDeleteType = "kcard";
+  byId("confirmModalTitle").textContent = "Excluir card?";
+  byId("confirmModalText").textContent = "Essa ação apaga o card permanentemente. Não pode ser desfeita.";
+  closeModal("kbCardModal");
+  openModal("confirmModal");
+});
+
+// botões "×" dos modais do Kanban
+document.querySelectorAll("[data-close]").forEach(btn =>
+  btn.addEventListener("click", () => closeModal(btn.dataset.close)));
+
+/* ---- eventos da tela ---- */
+byId("kbNewBoardBtn").addEventListener("click", () => openKbBoardModal(null));
+byId("kbEmptyCreateBtn").addEventListener("click", () => openKbBoardModal(null));
+byId("kbEditBoardBtn").addEventListener("click", () => {
+  const b = currentKbBoard();
+  if (b) openKbBoardModal(b.id);
+});
+byId("kbBoardTabs").addEventListener("click", (e) => {
+  const chip = e.target.closest(".kb-board-chip");
+  if (!chip) return;
+  kbActiveId = chip.dataset.id;
+  kbSaveActive();
+  kbAddingCol = null; kbAddDraft = "";
+  renderKanban();
+});
+byId("kbSearch").addEventListener("input", (e) => {
+  kbSearch = e.target.value;
+  renderKanban();
+});
+
+const kbBoardEl = byId("kbBoard");
+kbBoardEl.addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]");
+  const cardEl = e.target.closest(".kb-card");
+  if (act && act.dataset.act === "col-add") return openKbColumnModal(null);
+  if (act && act.dataset.act === "col-edit") return openKbColumnModal(e.target.closest(".kb-col").dataset.col);
+  if (act && act.dataset.act === "add-open"){
+    kbAddingCol = act.dataset.col; kbAddDraft = "";
+    renderKanban();
+    return;
+  }
+  if (!cardEl) return;
+  if (act && (act.dataset.act === "left" || act.dataset.act === "right")){
+    return kbMoveCardToNeighbor(cardEl.dataset.id, act.dataset.act === "left" ? -1 : 1);
+  }
+  openKbCardModal(cardEl.dataset.id);
+});
+// adicionar card rápido (Enter adiciona e mantém o campo aberto; Esc fecha)
+kbBoardEl.addEventListener("submit", async (e) => {
+  const form = e.target.closest(".kb-add-form");
+  if (!form) return;
+  e.preventDefault();
+  const board = currentKbBoard();
+  const input = form.querySelector("input");
+  const title = input.value.trim();
+  if (!board || !title) return;
+  input.value = ""; kbAddDraft = "";
+  await kbAddCard(board.id, form.dataset.col, title);
+});
+kbBoardEl.addEventListener("input", (e) => {
+  if (e.target.classList.contains("kb-add-input")) kbAddDraft = e.target.value;
+});
+kbBoardEl.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && e.target.classList.contains("kb-add-input")){
+    e.stopPropagation();
+    kbAddingCol = null; kbAddDraft = "";
+    renderKanban();
+  }
+});
+kbBoardEl.addEventListener("focusout", (e) => {
+  if (kbRendering || !e.target.classList.contains("kb-add-input") || e.target.value.trim()) return;
+  const form = e.target.closest(".kb-add-form");
+  if (!form || !form.isConnected) return;
+  kbAddingCol = null; kbAddDraft = "";
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "kb-add-btn";
+  btn.dataset.act = "add-open"; btn.dataset.col = form.dataset.col;
+  btn.textContent = "+ Adicionar card";
+  form.replaceWith(btn);
+});
+
+/* ---- arrastar e soltar (com posição dentro da coluna) ---- */
+const kbPlaceholder = document.createElement("div");
+kbPlaceholder.className = "kb-drop-line";
+
+function kbClearDrag(){
+  kbDraggedId = null;
+  kbPlaceholder.remove();
+  kbBoardEl.querySelectorAll(".kb-card.dragging").forEach(el => el.classList.remove("dragging"));
+  kbBoardEl.querySelectorAll(".kb-col.drag-over").forEach(el => el.classList.remove("drag-over"));
+}
+kbBoardEl.addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".kb-card");
+  if (!card) return;
+  kbDraggedId = card.dataset.id;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", kbDraggedId);
+  setTimeout(() => card.classList.add("dragging"), 0);
+});
+kbBoardEl.addEventListener("dragend", kbClearDrag);
+kbBoardEl.addEventListener("dragover", (e) => {
+  if (!kbDraggedId) return;
+  const col = e.target.closest(".kb-col");
+  if (!col) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  kbBoardEl.querySelectorAll(".kb-col.drag-over").forEach(el => { if (el !== col) el.classList.remove("drag-over"); });
+  col.classList.add("drag-over");
+  const body = col.querySelector(".kb-col-body");
+  const cards = [...body.querySelectorAll(".kb-card:not(.dragging)")];
+  const before = cards.find(c => {
+    const r = c.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2;
+  });
+  if (before) body.insertBefore(kbPlaceholder, before);
+  else body.appendChild(kbPlaceholder);
+});
+kbBoardEl.addEventListener("drop", (e) => {
+  if (!kbDraggedId) return;
+  const col = e.target.closest(".kb-col");
+  if (!col || !kbPlaceholder.parentElement) return kbClearDrag();
+  e.preventDefault();
+  const id = kbDraggedId;
+  const sibling = (el, dir) => {
+    let n = el[dir];
+    while (n && !(n.classList.contains("kb-card") && n.dataset.id !== id)) n = n[dir];
+    return n;
+  };
+  const prev = sibling(kbPlaceholder, "previousElementSibling");
+  const next = sibling(kbPlaceholder, "nextElementSibling");
+  const columnId = col.dataset.col;
+  kbClearDrag();
+  kbMoveCard(id, columnId, prev ? prev.dataset.id : null, next ? next.dataset.id : null);
+});
 
 /* ---------------------------------------------------------
    11. Modais — helpers genéricos

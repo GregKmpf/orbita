@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -66,6 +66,7 @@
       <button class="tab-btn" data-view="calendario">Calendário</button>
       <button class="tab-btn" data-view="coruja">Coruja</button>
       <button class="tab-btn" data-view="pomodoro">Pomodoro</button>
+      <button class="tab-btn" data-view="kanban">Kanban</button>
       <button class="tab-btn" data-view="projetos">Projetos</button>
     </nav>
     <div class="topbar-actions">
@@ -296,6 +297,39 @@
         <div class="pomo-history-list" id="pomoHistoryList">
           <div class="pomo-history-empty">Suas sessões de estudo vão aparecer aqui, agrupadas por dia.</div>
         </div>
+      </div>
+
+    </section>
+
+    <!-- VIEW: KANBAN -->
+    <section id="view-kanban" class="view">
+
+      <div class="kb-top">
+        <div class="kb-board-tabs" id="kbBoardTabs"></div>
+        <button class="btn btn-primary btn-sm" id="kbNewBoardBtn">+ Novo quadro</button>
+      </div>
+
+      <div class="kb-empty" id="kbEmpty" hidden>
+        <h3>Nenhum quadro ainda</h3>
+        <p>Crie quadros separados para cada assunto: estudos, trabalho, um projeto pessoal… Cada um tem suas próprias colunas e cards.</p>
+        <button class="btn btn-primary" id="kbEmptyCreateBtn">Criar meu primeiro quadro</button>
+      </div>
+
+      <div id="kbBoardWrap" hidden>
+        <div class="kb-board-head">
+          <div class="kb-board-title">
+            <span class="kb-dot kb-dot-lg"></span>
+            <div>
+              <h2 id="kbBoardName"></h2>
+              <p id="kbBoardMeta"></p>
+            </div>
+          </div>
+          <div class="kb-board-tools">
+            <input type="search" id="kbSearch" placeholder="Buscar cards…" autocomplete="off" aria-label="Buscar cards">
+            <button class="btn btn-ghost btn-sm" id="kbEditBoardBtn">Editar quadro</button>
+          </div>
+        </div>
+        <div class="kb-board" id="kbBoard"></div>
       </div>
 
     </section>
@@ -615,6 +649,98 @@
   </div>
 </div>
 
+<!-- MODAL: QUADRO KANBAN -->
+<div class="modal-backdrop" id="kbBoardModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="kbBoardModalTitle">Novo quadro</h3>
+      <button class="modal-close" data-close="kbBoardModal">&times;</button>
+    </div>
+    <form id="kbBoardForm">
+      <label class="field">
+        <span>Nome do quadro</span>
+        <input type="text" id="kbBoardNameInput" required maxlength="60" placeholder="Ex.: Faculdade, Trabalho, TCC">
+      </label>
+      <label class="field">
+        <span>Descrição (opcional)</span>
+        <input type="text" id="kbBoardDescInput" maxlength="140" placeholder="Para que serve este quadro?">
+      </label>
+      <label class="field" id="kbTemplateRow">
+        <span>Colunas iniciais</span>
+        <select id="kbBoardTemplate"></select>
+      </label>
+      <div class="field">
+        <span>Cor</span>
+        <div class="color-picker" id="kbBoardColorPicker"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="kbBoardSubmitBtn">Criar quadro</button>
+      <button type="button" class="btn btn-danger btn-block kb-modal-danger" id="kbBoardDeleteBtn" hidden>Excluir quadro</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: COLUNA KANBAN -->
+<div class="modal-backdrop" id="kbColumnModal" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h3 id="kbColumnModalTitle">Nova coluna</h3>
+      <button class="modal-close" data-close="kbColumnModal">&times;</button>
+    </div>
+    <form id="kbColumnForm">
+      <label class="field">
+        <span>Nome da coluna</span>
+        <input type="text" id="kbColumnNameInput" required maxlength="40" placeholder="Ex.: Em teste">
+      </label>
+      <label class="kb-check">
+        <input type="checkbox" id="kbColumnDoneInput">
+        <span>Coluna de concluídos <small>(cards aqui contam como feitos)</small></span>
+      </label>
+      <div class="kb-col-order" id="kbColumnOrderRow" hidden>
+        <button type="button" class="btn btn-ghost btn-sm" id="kbColLeftBtn">&#8592; Mover para a esquerda</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="kbColRightBtn">Mover para a direita &#8594;</button>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="kbColumnSubmitBtn">Criar coluna</button>
+      <button type="button" class="btn btn-danger btn-block kb-modal-danger" id="kbColumnDeleteBtn" hidden>Excluir coluna</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: CARD KANBAN -->
+<div class="modal-backdrop" id="kbCardModal" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="kbCardModalTitle">Novo card</h3>
+      <button class="modal-close" data-close="kbCardModal">&times;</button>
+    </div>
+    <form id="kbCardForm">
+      <label class="field">
+        <span>Título</span>
+        <input type="text" id="kbCardTitleInput" required maxlength="200" placeholder="O que precisa ser feito?">
+      </label>
+      <label class="field">
+        <span>Detalhes (opcional)</span>
+        <textarea id="kbCardNotesInput" rows="4" maxlength="2000" placeholder="Anotações, links, critérios de pronto…"></textarea>
+      </label>
+      <div class="kb-row2">
+        <label class="field">
+          <span>Coluna</span>
+          <select id="kbCardColumnSelect"></select>
+        </label>
+        <label class="field">
+          <span>Prazo (opcional)</span>
+          <input type="date" id="kbCardDueInput">
+        </label>
+      </div>
+      <div class="field">
+        <span>Etiqueta de cor</span>
+        <div class="color-picker" id="kbCardLabelPicker"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="kbCardSubmitBtn">Criar card</button>
+      <button type="button" class="btn btn-danger btn-block kb-modal-danger" id="kbCardDeleteBtn" hidden>Excluir card</button>
+    </form>
+  </div>
+</div>
+
 <!-- MODAL: CONFIRMAR EXCLUSÃO -->
 <div class="modal-backdrop" id="confirmModal" hidden>
   <div class="modal modal-sm">
@@ -638,6 +764,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
